@@ -31,6 +31,14 @@ from urllib.parse import urlparse
 
 import customtkinter as ctk
 
+# Ensure the project root is on sys.path so 'code' package is importable
+# even when running as `python code/gui_app.py` from the project root.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_ROOT = os.path.dirname(_APP_DIR)
+_APP_ICON = os.path.join(_PROJECT_ROOT, "vocalpro.ico")
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 from code._shared import (
     _ACCENT, _ACCENT_H, _BG, _BORDER, _CARD_BG, _CARD_TOP, _ERROR,
     _HISTORY_FILE, _PRESETS_DIR, _SEP_HISTORY_FILE,
@@ -52,13 +60,6 @@ from code.waveform_mixin import WaveformMixin
 
 # Drag-and-drop is handled via native Windows API (WM_DROPFILES) using
 # ctypes with PyGILState_Ensure/Release to avoid GIL crashes on Python 3.12+.
-
-# Ensure the project root is on sys.path so 'code' package is importable
-# even when running as `python code/gui_app.py` from the project root.
-_APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_APP_DIR)
-if _PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, _PROJECT_ROOT)
 
 # Load theme before creating window
 _theme_path = os.path.join(_PROJECT_ROOT, "theme.json")
@@ -749,15 +750,17 @@ class App(WaveformMixin, URLHandlerMixin, HistoryMixin, StemMixerMixin, ctk.CTk)
         if len(self.input_files) != 1 or self.input_files[0] != path:
             self.bpm_label.pack_forget()
             return
-        bpm = self._detect_bpm(path)
-        key = self._detect_key(path) if bpm else ""
-        parts = [p for p in [bpm, key] if p]
-        text = "  ".join(parts) if parts else ""
-        if text and len(self.input_files) == 1 and self.input_files[0] == path:
-            self.bpm_label.configure(text=text)
-            self.bpm_label.pack(side="left", padx=(8, 0))
-        else:
-            self.bpm_label.pack_forget()
+        def _detect():
+            bpm = self._detect_bpm(path)
+            key = self._detect_key(path) if bpm else ""
+            parts = [p for p in [bpm, key] if p]
+            text = "  ".join(parts) if parts else ""
+            if text and len(self.input_files) == 1 and self.input_files[0] == path:
+                self.after(0, lambda: self.bpm_label.configure(text=text))
+                self.after(0, lambda: self.bpm_label.pack(side="left", padx=(8, 0)))
+            else:
+                self.after(0, lambda: self.bpm_label.pack_forget())
+        threading.Thread(target=_detect, daemon=True).start()
 
     # ── Waveform preview helpers ────────────────────────────────────────
 

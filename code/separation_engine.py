@@ -167,6 +167,13 @@ class SeparationEngine:
             model_name = "htdemucs_ft"
         if self.model is not None and self.model_name == model_name:
             return
+        # Free old model before loading new one to avoid OOM
+        if self.model is not None:
+            del self.model
+            self.model = None
+            gc.collect()
+            if self.device.type == "cuda":
+                torch.cuda.empty_cache()
         self.progress(0, f"Loading model '{model_name}' (downloading if needed)...")
         # Suppress tqdm progress bars from demucs download to stderr
         with contextlib.redirect_stderr(io.StringIO()):
@@ -202,7 +209,7 @@ class SeparationEngine:
             ffprobe_exe, "-v", "quiet", "-print_format", "json",
             "-show_streams", file_path
         ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if res.returncode != 0:
             logger.warning("ffprobe failed (exit %d) for %s: %s",
                             res.returncode, file_path, res.stderr.strip())
@@ -278,7 +285,7 @@ class SeparationEngine:
                             break
                         self.progress(5 + em_i * 40, f"Running {em_model} ({em_i + 1}/{len(ensemble_models)})...")
                         self.config["model_name"] = em_model
-                        self.model = self._load_model()
+                        self._load_model()
                         em_result = self._run_demucs_on_file(wav_path, progress_offset=10 + em_i * 40, progress_scale=35)
                         if combined is None:
                             combined = em_result
@@ -296,7 +303,7 @@ class SeparationEngine:
                     else:
                         result = combined or {}
                     self.config["model_name"] = original_model_name
-                    self.model = self._load_model()
+                    self._load_model()
                 else:
                     self.progress(1, "Starting standard separation...")
                     result = self._run_demucs_on_file(wav_path, progress_offset=5, progress_scale=85)

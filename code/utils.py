@@ -32,17 +32,18 @@ def check_ffmpeg(custom_path: Optional[str] = None) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
+            timeout=10,
         )
         return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return False
 
 
-def _run_ffmpeg(cmd: list[str], description: str = "ffmpeg") -> None:
+def _run_ffmpeg(cmd: list[str], description: str = "ffmpeg", timeout: int = 600) -> None:
     """Run an ffmpeg/ffprobe command and raise on failure with the stderr message.
     The first element of cmd should already be resolved via _get_exe if needed.
     """
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         stderr_msg = result.stderr.strip() or "(no output)"
         raise RuntimeError(f"{description} failed (exit {result.returncode}): {stderr_msg}")
@@ -54,7 +55,7 @@ def _run_ffprobe(file_path: str, ffmpeg_path: Optional[str] = None, extra_args: 
     if extra_args:
         cmd.extend(extra_args)
     cmd.append(file_path)
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
     return json.loads(result.stdout)
 
 

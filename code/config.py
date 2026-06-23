@@ -98,6 +98,13 @@ def _validate(cfg: dict[str, Any]) -> dict[str, Any]:
     """Clamp config values to safe ranges. Returns the validated config."""
     for key, (lo, hi) in _VALIDATION.items():
         if key in cfg:
+            # Complex types (lists, dicts) are invalid for numeric config keys — reset to default
+            if isinstance(cfg[key], (list, dict)):
+                cfg[key] = DEFAULT_CONFIG[key]
+                continue
+            # Bools are valid (True/False → 1.0/0.0), just clamp
+            if isinstance(cfg[key], bool):
+                continue
             try:
                 val = float(cfg[key])
                 if val < lo or val > hi:

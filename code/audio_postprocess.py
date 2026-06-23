@@ -78,11 +78,13 @@ def detect_vocal_activity(
 
     # ── Convert to sample-level mask ──
     n_frames = len(vocal_score)
-    mask = np.zeros(total_samples, dtype=np.float32)
-    for i in range(n_frames):
-        start = i * hop_length
-        end = min(start + frame_length, total_samples)
-        mask[start:end] = vocal_score[i]
+    # Vectorized expansion: repeat each frame value across frame_length samples
+    mask = np.repeat(vocal_score, hop_length).astype(np.float32)
+    # Trim or pad to exact total_samples length
+    if len(mask) > total_samples:
+        mask = mask[:total_samples]
+    elif len(mask) < total_samples:
+        mask = np.pad(mask, (0, total_samples - len(mask)))
 
     # ── Smooth the mask ──
     kernel_size = max(3, int(min_vocal_duration * sr / hop_length))
@@ -325,9 +327,8 @@ def spectral_denoise(
     if audio.ndim == 1:
         denoised = nr.reduce_noise(y=audio, **kwargs)
     else:
-        denoised = np.zeros_like(audio)
-        for ch in range(audio.shape[0]):
-            denoised[ch] = nr.reduce_noise(y=audio[ch], **kwargs)
+        # noisereduce supports stereo natively — pass the full array
+        denoised = nr.reduce_noise(y=audio, **kwargs)
 
     if not np.all(np.isfinite(denoised)):
         denoised = np.nan_to_num(denoised, copy=False)
@@ -695,5 +696,4 @@ def postprocess_vocals(
         logger.info("Trimming silence")
         result = trim_silence(result, sr=sr)
 
-    gc.collect()
     return result
