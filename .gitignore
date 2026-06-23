@@ -1,0 +1,45 @@
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual environment ──────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── IDE ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ── Pytest ───────────────────────────────────────────────────────────────
+.pytest_cache/
+
+# ── App output / temp data ───────────────────────────────────────────────
+output_vocals/
+output_*/
+*.log
+app_stderr.txt
+
+# ── User data (generated at runtime) ────────────────────────────────────
+separation_history.json
+download_history.json
+
+# ── Archived / old files ─────────────────────────────────────────────────
+ignore/
+
+# ── OS files ─────────────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
