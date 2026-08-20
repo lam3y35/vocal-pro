@@ -394,24 +394,25 @@
             background: var(--bg2);
             border: 1px solid var(--border);
             border-radius: 10px;
-            padding: 1.2rem 1.5rem;
-            display: flex;
-            align-items: flex-start;
-            gap: 1rem;
+            padding: 1rem 1.2rem;
         }
         .setting-item .key {
-            flex-shrink: 0;
+            display: inline-block;
             font-family: var(--font-mono);
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             background: var(--bg3);
-            padding: 0.2rem 0.6rem;
+            padding: 0.15rem 0.5rem;
             border-radius: 4px;
             color: #a78bfa;
-            margin-top: 0.1rem;
+            white-space: nowrap;
+            margin-bottom: 0.35rem;
         }
-        .setting-item .desc { flex: 1; }
-        .setting-item .desc strong { display: block; font-size: 0.92rem; margin-bottom: 0.2rem; }
-        .setting-item .desc span { color: var(--text-dim); font-size: 0.85rem; }
+        .setting-item .desc {
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+        .setting-item .desc strong { display: block; font-size: 0.92rem; margin-bottom: 0.15rem; }
+        .setting-item .desc span { display: inline; color: var(--text-dim); font-size: 0.85rem; overflow-wrap: break-word; word-wrap: break-word; }
 
         /* ── Why Section ── */
         .why-grid {
@@ -538,10 +539,10 @@
         <div class="links">
             <a href="#overview">Overview</a>
             <a href="#how-it-works">How It Works</a>
+            <a href="#usage">How to Use</a>
             <a href="#features">Features</a>
             <a href="#models">Models</a>
             <a href="#settings">Settings</a>
-            <a href="#presets">Presets</a>
             <a href="#stem-mixer">Stem Mixer</a>
             <a href="#why">Why VocalPro</a>
             <a href="#tech">Tech Stack</a>
@@ -550,7 +551,7 @@
 
     <!-- ════════════ Hero ════════════ -->
     <section class="hero">
-        <div class="badge">🎵 v2.0 — Open Source</div>
+        <div class="badge">🎵 v2.5.0 — Open Source</div>
         <h1>Vocal Separation, Analysis & Remixing</h1>
         <p>
             VocalPro is a professional-grade desktop application that uses state-of-the-art AI
@@ -570,12 +571,12 @@
             <span class="section-label">Overview</span>
             <h2>What Is VocalPro?</h2>
             <p>
-                VocalPro is a powerful, dark-themed desktop GUI built with Python and CustomTkinter
-                that leverages the <strong>Demucs Hybrid Transformer</strong> deep learning architecture
+                VocalPro is a modern desktop application with a <strong>Flutter</strong> frontend and a <strong>Python</strong>
+                AI backend (FastAPI + Demucs) that leverages the <strong>Hybrid Transformer</strong> deep learning architecture
                 to separate vocal tracks from background instrumentation. Whether you're a musician
                 looking for acapellas, a content creator needing clean voice tracks, or a researcher
-                analyzing audio, VocalPro delivers studio-quality results with a simple drag-and-drop
-                interface.
+                analyzing audio, VocalPro delivers studio-quality results with a drag-and-drop
+                interface and real-time progress via WebSocket.
             </p>
             <div class="grid-3">
                 <div class="card">
@@ -609,6 +610,16 @@
                     <p>No cloud dependencies, no subscriptions, no data uploads. Everything runs locally on your machine with GPU acceleration.</p>
                 </div>
                 <div class="card">
+                    <span class="icon">🌍</span>
+                    <h3>Multi-Language (16 Locales)</h3>
+                    <p>Full i18n support with 16 languages including English, Spanish, French, German, Japanese, Chinese, and more.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🔗</span>
+                    <h3>File Associations</h3>
+                    <p>Registers VocalPro as the default handler for .mp3, .wav, .flac, .ogg, .mp4, .mkv, .avi, and .mov files via HKCU registry.</p>
+                </div>
+                <div class="card">
                     <span class="icon">🎵</span>
                     <h3>BPM & Key Detection</h3>
                     <p>Automatically detects tempo (BPM) using librosa beat tracking and musical key using Krumhansl-Schmuckler chroma analysis. Displayed in the waveform area.</p>
@@ -629,14 +640,14 @@
                     <p>Extract pitch contours from vocal or melodic stems using librosa.pyin and export as standard MIDI files (.mid). Useful for transcription and remixing.</p>
                 </div>
                 <div class="card">
-                    <span class="icon">💾</span>
-                    <h3>Preset System</h3>
-                    <p>Save/load named presets for the entire configuration. Includes default presets: "Default", "Maximum Quality", "Fast", "Karaoke", and "Minimal".</p>
+                    <span class="icon">🪟</span>
+                    <h3>System Tray & Window Mgmt</h3>
+                    <p>Minimize-to-tray with custom icon, always-on-top toggle, and persistent window position across restarts.</p>
                 </div>
                 <div class="card">
                     <span class="icon">📊</span>
                     <h3>Waveform Preview</h3>
-                    <p>Real-time waveform visualization rendered from the loaded audio. Shows playback cursor position during preview.</p>
+                    <p>Flutter Canvas-based waveform visualization with play/pause/seek controls, real-time cursor tracking, and A/B time display.</p>
                 </div>
                 <div class="card">
                     <span class="icon">🎹</span>
@@ -736,6 +747,137 @@
         </div>
     </section>
 
+    <!-- ════════════ How to Use ════════════ -->
+    <section id="usage">
+        <div class="container">
+            <span class="section-label">How to Use</span>
+            <h2>Getting Started with VocalPro</h2>
+            <p>
+                Using VocalPro is straightforward. Follow this step-by-step guide to go from
+                launching the app to exporting your first clean vocal track.
+            </p>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h3>Launch the App</h3>
+                        <p>
+                            Double-click <strong>run.bat</strong> in the project folder. This starts the Python
+                            AI server (the backend) in the background and opens the VocalPro desktop window.
+                            The first time you run it, it may take a few seconds to initialize. A splash screen
+                            shows the connection status — wait until it says "Connected" and the main UI appears.
+                        </p>
+                        <p style="margin-top:0.5rem; color:var(--text-muted); font-size:0.85rem;">
+                            ⚠️ If the app window doesn't appear, install the
+                            <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe">VC++ Redistributable</a>
+                            and try again.
+                        </p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h3>Load an Audio or Video File</h3>
+                        <p>You have three ways to load files:</p>
+                        <ul>
+                            <li><strong>Drag &amp; Drop</strong> — Drag any audio file (MP3, WAV, FLAC, OGG) or video file (MP4, MKV, AVI, MOV) onto the drop zone in the top card.</li>
+                            <li><strong>Browse</strong> — Click the <strong>Browse</strong> button to open a file picker dialog. Select one or more files.</li>
+                            <li><strong>URL</strong> — Paste a URL (e.g. YouTube link) into the URL field and click <strong>Download</strong>. VocalPro will download and process the audio.</li>
+                        </ul>
+                        <p style="margin-top:0.5rem;">Once loaded, a waveform preview renders automatically. BPM and musical key are detected and displayed in a badge above the waveform.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h3>Configure Settings (Optional)</h3>
+                        <p>Before processing, you can fine-tune settings in the <strong>SETTINGS</strong> card:</p>
+                        <ul>
+                            <li><strong>AI Model</strong> — Choose from 8 Demucs models. <code>htdemucs_ft</code> is recommended for best quality.</li>
+                            <li><strong>Segment / Overlap / Shifts</strong> — Controls how the model processes audio. Longer segments give better context but use more memory. More shifts reduce artifacts but take longer.</li>
+                            <li><strong>Output Format</strong> — WAV (lossless), MP3 (smaller), or FLAC (compressed lossless).</li>
+                            <li><strong>Post-Processing</strong> — Toggle vocal gate, spectral denoising, multi-band denoising, noise profiling, and adaptive gate floor. Each can be enabled/disabled independently.</li>
+                            <li><strong>Karaoke Mode</strong> — Enable to export an instrumental track alongside the vocals.</li>
+                            <li><strong>Ensemble Mode</strong> — Enable to run multiple models and average results for cleaner output.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h3>Run Separation</h3>
+                        <p>Click the <strong>RUN</strong> button to start the separation process. VocalPro processes files one at a time if you queued multiple. A progress bar shows the current file's progress, and the log area displays detailed status messages. You can click <strong>Cancel</strong> to stop at any time.</p>
+                        <p style="margin-top:0.5rem;">When complete, the output folder opens automatically. Each separated stem is saved as a separate file.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">5</div>
+                    <div class="step-content">
+                        <h3>Use the Stem Mixer</h3>
+                        <p>After separation, the <strong>STEM MIXER</strong> card appears at the bottom of the window with individual volume sliders for each stem (vocals, drums, bass, other, and optionally piano + guitar with the 6-stem model).</p>
+                        <ul>
+                            <li>Drag sliders to adjust volume (0% to 200%) for each stem independently.</li>
+                            <li>Click <strong>🎧 Mix &amp; Export</strong> to save the blended result as a single file.</li>
+                            <li>Click <strong>📦 Export All (Custom)</strong> to save each stem at its slider level.</li>
+                            <li>Click <strong>Export All Stems</strong> to save every stem at full volume.</li>
+                            <li>Click <strong>🎵 MIDI</strong> next to any stem to extract pitch contours as a MIDI file.</li>
+                            <li>Click <strong>🎵 MIDI All</strong> to extract MIDI from all melodic stems at once.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">6</div>
+                    <div class="step-content">
+                        <h3>Export &amp; Review</h3>
+                        <p>All separated files are saved to an output folder named with the original file name and timestamp. The output folder opens automatically after processing. You'll find:</p>
+                        <ul>
+                            <li><strong>Vocals</strong> — Clean vocal track (post-processed)</li>
+                            <li><strong>Background</strong> — Music track without vocals (if enabled)</li>
+                            <li><strong>Individual stems</strong> — Drums, bass, other (and piano/guitar if using 6-stem model)</li>
+                            <li><strong>Comparison samples</strong> — 3 random clips of original vs separated for quick A/B testing (if enabled)</li>
+                            <li><strong>Karaoke track</strong> — Instrumental mix (if karaoke mode was enabled)</li>
+                            <li><strong>MIDI files</strong> — Raw and smoothed pitch contours (if extracted)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 2.5rem;">⌨️ Keyboard Shortcuts</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-top: 1rem;">
+                <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Browse for files</span>
+                    <code style="font-size:0.85rem;">Ctrl + O</code>
+                </div>
+                <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Start separation</span>
+                    <code style="font-size:0.85rem;">Ctrl + R</code>
+                </div>
+                <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Cancel operation</span>
+                    <code style="font-size:0.85rem;">Esc</code>
+                </div>
+                <div style="background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:0.75rem 1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>Clear log</span>
+                    <code style="font-size:0.85rem;">Clear button</code>
+                </div>
+            </div>
+
+            <div style="margin-top: 2rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 14px; padding: 1.5rem;">
+                <h3 style="margin-bottom: 0.5rem;">💡 Tips for Best Results</h3>
+                <ul style="font-size:0.9rem; color: var(--text-dim);">
+                    <li>Use <strong>WAV output format</strong> for maximum quality — it's lossless. MP3 is fine for quick tests.</li>
+                    <li>Start with the <strong>htdemucs_ft</strong> model — it's the best all-around choice. Switch to <strong>htdemucs_6s</strong> if you need separate piano/guitar stems.</li>
+                    <li>Increase <strong>shifts</strong> to 5+ for cleaner vocals (reduces artifacts), or keep at 1 for fastest processing.</li>
+                    <li>Enable <strong>ensemble mode</strong> for the cleanest possible vocals — it runs multiple models and averages results, at the cost of longer processing time.</li>
+                    <li>If vocals sound muffled or have too much music bleed, increase <strong>denoise_strength</strong> or enable <strong>multi-band denoising</strong> with gentler mid-band settings.</li>
+                    <li>Use <strong>karaoke mode</strong> to create instrumental tracks for practice or covers.</li>
+                    <li>For video files, VocalPro automatically muxes clean vocals back into the original video — check the <strong>video_output_mode</strong> setting to control whether the video-only file is kept.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
     <!-- ════════════ Features ════════════ -->
     <section id="features">
         <div class="container">
@@ -800,16 +942,12 @@
                     <p>Estimates the musical key using the Krumhansl-Schmuckler key-finding algorithm. Computes a chroma CQT spectrogram, correlates it against major/minor key profiles, and displays the result (e.g. "C major", "A minor") in the waveform badge.</p>
                 </div>
                 <div class="detail-card">
-                    <h4>💾 Preset System</h4>
-                    <p>Save and load named presets that store the entire application configuration. A dropdown in the MODEL section lets you switch between presets. Default presets include <strong>Default</strong>, <strong>Maximum Quality</strong> (long segment, high shifts), <strong>Fast</strong> (short segment), <strong>Karaoke</strong>, and <strong>Minimal</strong> (no post-processing). Presets are stored as JSON files in <code>~/.vocal_remover_pro/presets/</code>.</p>
-                </div>
-                <div class="detail-card">
                     <h4>🎛️ Stem Mixer</h4>
                     <p>After separation, the <strong>STEM MIXER</strong> card appears with individual volume sliders (0%–200%) for every stem. You can remix stems at custom levels, export the mix, or export all stems as separate WAV files. The mixer dynamically adapts to the number of available stems (4, 6, or 8).</p>
                 </div>
                 <div class="detail-card">
                     <h4>📊 Waveform Preview</h4>
-                    <p>A <code>tk.Canvas</code>-based waveform visualization renders the loaded audio as a mirrored waveform display. Resizes automatically, shows a playback position cursor during preview, and hot-swaps when a new file is loaded.</p>
+                    <p>A Flutter <code>CustomPainter</code>-based waveform visualization renders the loaded audio as animated amplitude bars with an accent gradient. Shows a playback cursor, supports tap-to-seek drag, and displays real-time elapsed/remaining time.</p>
                 </div>
                 <div class="detail-card">
                     <h4>⌨️ Keyboard Shortcuts</h4>
@@ -932,7 +1070,7 @@
             <p>
                 VocalPro exposes a comprehensive set of configuration options through its intuitive
                 GUI — from model selection to advanced audio processing parameters — all persisted
-                to <code>~/.vocal_remover_pro_config.json</code>.
+                to <code>~/.vocalpro_config.json</code>.
             </p>
 
             <div class="settings-grid">
@@ -1083,13 +1221,7 @@
                         <span>Runs audio through htdemucs_ft + mdx_extra models and averages vocal outputs for cleaner results. Toggle in OPTIONS section.</span>
                     </div>
                 </div>
-                <div class="setting-item">
-                    <span class="key">preset</span>
-                    <div class="desc">
-                        <strong>Preset Selection</strong>
-                        <span>Dropdown in MODEL section to load saved presets. Includes Save/Load/Delete buttons. Presets stored as JSON in <code>~/.vocal_remover_pro/presets/</code>.</span>
-                    </div>
-                </div>
+
                 <div class="setting-item">
                     <span class="key">midi_extraction</span>
                     <div class="desc">
@@ -1110,35 +1242,6 @@
                         <strong>BPM & Key Detection</strong>
                         <span>Automatic analysis on file load. BPM via librosa beat tracking, key via Krumhansl-Schmuckler chroma correlation. Displayed in waveform badge.</span>
                     </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- ════════════ Presets ════════════ -->
-    <section id="presets">
-        <div class="container">
-            <span class="section-label">Presets</span>
-            <h2>Save &amp; Load Configurations Instantly</h2>
-            <p>
-                The preset system lets you save your entire application configuration as a named
-                preset and load it back with a single click. Presets are stored as JSON files in
-                <code>~/.vocal_remover_pro/presets/</code>.
-            </p>
-            <div class="grid-2">
-                <div class="card">
-                    <span class="icon">💾</span>
-                    <h3>Save / Load / Delete</h3>
-                    <p>Click <strong>💾 Save</strong> to name and persist the current config. Use the dropdown to select a preset and click <strong>📂 Load</strong> to apply it. The <strong>🗑️</strong> button removes the selected preset. Double-click a preset name in the dropdown to apply it immediately.</p>
-                </div>
-                <div class="card">
-                    <span class="icon">📋</span>
-                    <h3>Default Presets</h3>
-                    <p><strong>Default</strong> — balanced settings for general use.<br>
-                    <strong>Maximum Quality</strong> — long segment (30s), high shifts (5), all post-processing enabled.<br>
-                    <strong>Fast</strong> — short segment (5s), no post-processing for quick drafts.<br>
-                    <strong>Karaoke</strong> — enables karaoke mode + instrumental export.<br>
-                    <strong>Minimal</strong> — no vocal gate, no denoising, no SFX separation.</p>
                 </div>
             </div>
         </div>
@@ -1304,13 +1407,6 @@
                         <td><span class="cross">❌</span></td>
                     </tr>
                     <tr>
-                        <td>Preset System</td>
-                        <td><span class="check">✅</span></td>
-                        <td><span class="cross">❌</span></td>
-                        <td><span class="cross">❌</span></td>
-                        <td><span class="check">✅</span></td>
-                    </tr>
-                    <tr>
                         <td>Stem Mixer (Remixing)</td>
                         <td><span class="check">✅</span></td>
                         <td><span class="cross">❌</span></td>
@@ -1370,20 +1466,24 @@
     <section id="tech">
         <div class="container">
             <span class="section-label">Technology</span>
-            <h2>Built on a Modern Python Stack</h2>
+            <h2>Built on a Modern Full-Stack Architecture</h2>
             <p>
-                VocalPro is built with carefully chosen libraries that balance performance,
-                ease of use, and maintainability.
+                VocalPro combines a Flutter desktop frontend with a Python AI backend connected
+                via a FastAPI REST + WebSocket server for real-time progress.
             </p>
 
             <div class="tech-stack">
                 <div class="tech-item">
-                    <div class="name">Python 3.12</div>
-                    <div class="role">Language</div>
+                    <div class="name">Flutter / Dart</div>
+                    <div class="role">Desktop Frontend</div>
                 </div>
                 <div class="tech-item">
-                    <div class="name">CustomTkinter</div>
-                    <div class="role">GUI Framework</div>
+                    <div class="name">FastAPI</div>
+                    <div class="role">REST + WebSocket Server</div>
+                </div>
+                <div class="tech-item">
+                    <div class="name">Python 3.12</div>
+                    <div class="role">AI Backend</div>
                 </div>
                 <div class="tech-item">
                     <div class="name">PyTorch</div>
@@ -1412,10 +1512,6 @@
                 <div class="tech-item">
                     <div class="name">FFmpeg</div>
                     <div class="role">Media Processing</div>
-                </div>
-                <div class="tech-item">
-                    <div class="name">PyInstaller</div>
-                    <div class="role">Packaging</div>
                 </div>
             </div>
 
@@ -1449,7 +1545,7 @@
     <footer>
         <p>
             <strong>VocalPro</strong> — AI-Powered Vocal Separation<br>
-            Built with Python, PyTorch &amp; Demucs
+            Built with Flutter, FastAPI, PyTorch &amp; Demucs
         </p>
         <p style="margin-top:0.5rem;">
             <a href="#">↑ Back to top</a>

@@ -2,43 +2,50 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
-  test:
+  test-python:
     runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: ["3.12"]
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
+          cache: "pip"
 
-      - name: Install system dependencies
-        run: |
-          choco install ffmpeg -y
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          pip install -e .[full,test]
 
-      - name: Run tests
+      - name: Run Python tests
         run: |
-          python -m pytest code/test_all.py -v --tb=short -q --timeout=60
+          python -m pytest tests/unit/ tests/integration/ -v --tb=short
+
+  test-flutter:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29"
+          channel: "stable"
+
+      - name: Flutter pub get
+        run: flutter pub get
+        working-directory: flutter_app
+
+      - name: Run Flutter tests
+        run: flutter test
+        working-directory: flutter_app

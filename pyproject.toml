@@ -9,17 +9,30 @@ description = "Audio separation tool for vocal/background music removal"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
-    "torch>=2.1.0",
-    "torchaudio>=2.1.0",
-    "demucs>=4.0.0",
-    "soundfile>=0.12.1",
-    "librosa>=0.10.1",
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "noisereduce>=3.0.0",
-    "customtkinter",
-    "sounddevice>=0.5.0",
-    "Pillow>=10.0.0",
+    # Core runtime dependencies kept small for lightweight installs;
+    # heavy ML/audio backends moved to optional 'full' extra below.
+    "soundfile==0.13.1",
+    "numpy==1.26.4",
+    "Pillow==12.1.1",
+    # API server (required for Flutter frontend to communicate with backend)
+    "fastapi==0.115.0",
+    "uvicorn==0.30.1",
+    "pydantic==2.12.5",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.0.3",
+]
+
+
+full = [
+    "torch==2.11.0+cpu",
+    "torchaudio==2.11.0",
+    "demucs==4.0.1",
+    "librosa==0.11.0",
+    "scipy==1.15.3",
+    "noisereduce==3.0.3",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,9 +40,16 @@ where = ["code"]
 include = ["code*"]
 
 [tool.pytest.ini_options]
-testpaths = ["code/test_all.py"]
+testpaths = ["code", "tests"]
 python_files = ["test_*.py"]
+addopts = ["-q", "--tb=short", "-m", "not slow", "--import-mode=importlib"]
+markers = [
+    "slow: marks tests as slow (torch/librosa integration); excluded by default",
+]
 filterwarnings = [
-    "ignore::DeprecationWarning",
-    "ignore::UserWarning",
+    "ignore::DeprecationWarning:librosa",
+    "ignore::DeprecationWarning:numpy",
+    "ignore::FutureWarning:sklearn",
+    "ignore::UserWarning:torch",
+    # Don't blanket-ignore – let unknown deprecations surface
 ]

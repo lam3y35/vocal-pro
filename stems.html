@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VocalPro — Stems: Complete Guide</title>
+    <style>
+        /* ── Reset & Base ── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        :root {
+            --bg: #0D1117;
+            --bg2: #161B22;
+            --bg3: #21262D;
+            --border: #30363D;
+            --accent: #7C3AED;
+            --accent-hover: #6D28D9;
+            --accent-glow: rgba(124, 58, 237, 0.3);
+            --success: #22C55E;
+            --error: #EF4444;
+            --warning: #F59E0B;
+            --info: #3B82F6;
+            --text: #E6EDF3;
+            --text-dim: #8B949E;
+            --text-muted: #484F58;
+            --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            --font-mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+        }
+        body {
+            font-family: var(--font);
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+        ::selection { background: var(--accent); color: #fff; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+        h1, h2, h3, h4 { font-weight: 700; line-height: 1.3; }
+        h1 { font-size: clamp(2.2rem, 5vw, 3.5rem); }
+        h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+        h3 { font-size: 1.25rem; }
+        p { margin-bottom: 1rem; }
+        a { color: var(--accent); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: #a78bfa; text-decoration: underline; }
+        code {
+            font-family: var(--font-mono);
+            background: var(--bg3);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #e2e8f0;
+        }
+        pre {
+            font-family: var(--font-mono);
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.2rem 1.5rem;
+            overflow-x: auto;
+            font-size: 0.875rem;
+            line-height: 1.6;
+            color: #c9d1d9;
+            margin: 1rem 0;
+        }
+        pre code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }
+        ul, ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+        li { margin-bottom: 0.35rem; }
+        hr {
+            border: none;
+            height: 1px;
+            background: var(--border);
+            margin: 2.5rem 0;
+        }
+
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            background: rgba(13, 17, 23, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        nav .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text);
+        }
+        nav .logo .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+        nav .links { display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: flex-end; }
+        nav .links a {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color 0.2s;
+            text-decoration: none;
+        }
+        nav .links a:hover { color: var(--text); text-decoration: none; }
+
+        .hero {
+            padding: 8rem 2rem 5rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -40%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            height: 800px;
+            background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .hero .badge {
+            display: inline-block;
+            background: rgba(124, 58, 237, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(124, 58, 237, 0.3);
+            padding: 0.3rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1.5rem;
+        }
+        .hero h1 {
+            background: linear-gradient(135deg, #e2e8f0 0%, #a78bfa 50%, #7C3AED 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+        }
+        .hero p {
+            max-width: 720px;
+            margin: 0 auto 2rem;
+            color: var(--text-dim);
+            font-size: 1.15rem;
+        }
+
+        .container { max-width: 1000px; margin: 0 auto; padding: 0 2rem; }
+        section { padding: 4rem 0; }
+        section .section-label {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        section h2 { margin-bottom: 1rem; }
+        section > .container > p { color: var(--text-dim); max-width: 700px; }
+
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+        .card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 1.8rem;
+            transition: all 0.25s;
+        }
+        .card:hover {
+            border-color: var(--accent);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+        }
+        .card .icon { font-size: 2rem; margin-bottom: 1rem; display: block; }
+        .card h3 { margin-bottom: 0.5rem; font-size: 1.1rem; }
+        .card p { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0; }
+
+        .steps { margin-top: 2.5rem; counter-reset: step; }
+        .step {
+            display: flex;
+            gap: 1.5rem;
+            padding: 1.8rem 0;
+            border-bottom: 1px solid var(--border);
+            align-items: flex-start;
+        }
+        .step:last-child { border-bottom: none; }
+        .step-num {
+            flex-shrink: 0;
+            width: 44px; height: 44px;
+            border-radius: 12px;
+            background: var(--accent);
+            color: #fff;
+            font-weight: 700;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .step-content h3 { margin-bottom: 0.3rem; }
+        .step-content p { color: var(--text-dim); font-size: 0.95rem; margin-bottom: 0; }
+        .step-content ul { margin-top: 0.5rem; }
+
+        .pipeline {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: center;
+            align-items: center;
+            margin: 2rem 0;
+            padding: 2rem;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+        .pipeline-item {
+            background: var(--bg3);
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-align: center;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .pipeline-item:hover {
+            border-color: var(--accent);
+            background: rgba(124, 58, 237, 0.1);
+        }
+        .pipeline-item.accent {
+            background: rgba(124, 58, 237, 0.15);
+            border-color: rgba(124, 58, 237, 0.3);
+        }
+        .pipeline-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+        .model-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 1.5rem;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        .model-table thead { background: var(--bg3); }
+        .model-table th {
+            text-align: left;
+            padding: 0.8rem 1rem;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+        .model-table td {
+            padding: 0.7rem 1rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+        .model-table tbody tr { background: var(--bg2); transition: background 0.2s; }
+        .model-table tbody tr:hover { background: var(--bg3); }
+        .tag {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .tag-best { background: rgba(34, 197, 94, 0.15); color: var(--success); }
+        .tag-fast { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+        .tag-light { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .tag-stem { background: rgba(124, 58, 237, 0.15); color: var(--accent); }
+
+        .feature-detail {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+        .feature-detail .detail-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .feature-detail .detail-card h4 {
+            color: var(--accent);
+            margin-bottom: 0.4rem;
+            font-size: 1rem;
+        }
+        .feature-detail .detail-card p {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 0;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .setting-item {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem 1.2rem;
+        }
+        .setting-item .key {
+            display: inline-block;
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            background: var(--bg3);
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            color: #a78bfa;
+            white-space: nowrap;
+            margin-bottom: 0.35rem;
+        }
+        .setting-item .desc strong { display: block; font-size: 0.92rem; margin-bottom: 0.15rem; }
+        .setting-item .desc span { display: inline; color: var(--text-dim); font-size: 0.85rem; overflow-wrap: break-word; word-wrap: break-word; }
+
+        .stem-visual {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin: 2rem 0;
+            flex-wrap: wrap;
+        }
+        .stem-bar {
+            width: 60px;
+            padding: 0.5rem;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .stem-bar .label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
+        .stem-bar .icon { font-size: 1.5rem; }
+
+        .flow-diagram {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            align-items: center;
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+        .flow-box {
+            background: var(--bg3);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.8rem 1.2rem;
+            text-align: center;
+            min-width: 100px;
+            transition: all 0.2s;
+        }
+        .flow-box:hover { border-color: var(--accent); }
+        .flow-box .title { font-weight: 600; font-size: 0.85rem; }
+        .flow-box .sub { color: var(--text-dim); font-size: 0.7rem; margin-top: 0.2rem; }
+        .flow-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+        .info-box {
+            background: var(--bg2);
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+            padding: 1.2rem 1.5rem;
+            margin: 1.5rem 0;
+        }
+        .info-box h4 { color: var(--accent); margin-bottom: 0.3rem; }
+        .info-box p { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0; }
+
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 3rem 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+        footer a { color: var(--text-dim); }
+        footer a:hover { color: var(--text); }
+
+        @media (max-width: 768px) {
+            nav .links { display: none; }
+            .hero { padding: 6rem 1rem 3rem; }
+            .container { padding: 0 1rem; }
+            .feature-detail { grid-template-columns: 1fr; }
+            .pipeline { flex-direction: column; }
+            .pipeline-arrow { transform: rotate(90deg); }
+            section { padding: 2.5rem 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ════════════ Navigation ════════════ -->
+    <nav>
+        <div class="logo">
+            <span class="dot"></span>
+            VocalPro — Stems
+        </div>
+        <div class="links">
+            <a href="#what-are-stems">What Are Stems?</a>
+            <a href="#models">Models &amp; Stems</a>
+            <a href="#how-it-works">How Separation Works</a>
+            <a href="#stem-mixer">Stem Mixer</a>
+            <a href="#post-processing">Post-Processing</a>
+            <a href="#export">Export &amp; MIDI</a>
+            <a href="#settings">Settings</a>
+            <a href="#api">API Reference</a>
+        </div>
+    </nav>
+
+    <!-- ════════════ Hero ════════════ -->
+    <section class="hero">
+        <div class="badge">🎛️ Audio Source Separation</div>
+        <h1>Understanding Stems in VocalPro</h1>
+        <p>
+            A complete guide to audio source separation, the Demucs AI models, the stem mixer,
+            MIDI extraction, karaoke mode, SFX separation, and every setting that controls how
+            VocalPro breaks apart and reassembles your music.
+        </p>
+    </section>
+
+    <!-- ════════════ What Are Stems ════════════ -->
+    <section id="what-are-stems">
+        <div class="container">
+            <span class="section-label">Fundamentals</span>
+            <h2>What Are Stems?</h2>
+            <p>
+                In audio production, a <strong>stem</strong> is an isolated audio track containing
+                a single category of sound extracted from a full mixed recording. For example, a
+                song's final mix can be separated into <strong>vocals</strong>, <strong>drums</strong>,
+                <strong>bass</strong>, and <strong>other</strong> (all remaining instruments) — each
+                saved as its own independent audio file.
+            </p>
+
+            <div class="stem-visual">
+                <div class="stem-bar" style="background: rgba(124, 58, 237, 0.2); border: 1px solid rgba(124, 58, 237, 0.3);">
+                    <span class="icon">🎤</span>
+                    <span>Vocals</span>
+                    <span class="label">Lead voice</span>
+                </div>
+                <div class="stem-bar" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.3);">
+                    <span class="icon">🥁</span>
+                    <span>Drums</span>
+                    <span class="label">Percussion</span>
+                </div>
+                <div class="stem-bar" style="background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.3);">
+                    <span class="icon">🎸</span>
+                    <span>Bass</span>
+                    <span class="label">Bass guitar</span>
+                </div>
+                <div class="stem-bar" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.3);">
+                    <span class="icon">🎹</span>
+                    <span>Other</span>
+                    <span class="label">Instruments</span>
+                </div>
+                <div class="stem-bar" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.3);">
+                    <span class="icon">🎹</span>
+                    <span>Piano</span>
+                    <span class="label">6-stem only</span>
+                </div>
+                <div class="stem-bar" style="background: rgba(251, 191, 36, 0.2); border: 1px solid rgba(251, 191, 36, 0.3);">
+                    <span class="icon">🎸</span>
+                    <span>Guitar</span>
+                    <span class="label">6-stem only</span>
+                </div>
+            </div>
+
+            <p>
+                Stem separation has many practical uses. Musicians extract vocals for remixes or
+                acapellas. Content creators isolate dialogue from background music. DJs grab
+                drum tracks for beatmatching. Producers analyze individual instrument parts for
+                transcription or study. The <strong>Demucs</strong> AI models powering VocalPro
+                make this possible with studio-quality results — entirely offline on your own machine.
+            </p>
+
+            <div class="info-box">
+                <h4>🎯 Key Concept</h4>
+                <p>
+                    A typical mixed song is a single audio file where all instruments and vocals are
+                    summed together. Stem separation is the process of inverting this mix — recovering
+                    the individual source tracks from the combined signal. Demucs achieves this by
+                    learning the unique spectral, temporal, and harmonic patterns of each instrument
+                    type through deep learning on thousands of multitrack recordings.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Models & Stems ════════════ -->
+    <section id="models">
+        <div class="container">
+            <span class="section-label">AI Models</span>
+            <h2>How Many Stems Each Model Produces</h2>
+            <p>
+                VocalPro ships with <strong>8 Demucs models</strong>. The number of output stems
+                depends on the model architecture — 4-stem models are the standard, while
+                <code>htdemucs_6s</code> adds dedicated piano and guitar tracks.
+            </p>
+
+            <table class="model-table">
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Stems</th>
+                        <th>Output Tracks</th>
+                        <th>Quality</th>
+                        <th>Best For</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>htdemucs_ft</code> <span class="tag tag-best">Best</span></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★★★</td>
+                        <td>Maximum quality — the recommended default</td>
+                    </tr>
+                    <tr>
+                        <td><code>htdemucs</code> <span class="tag tag-fast">Fast</span></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★★☆</td>
+                        <td>Faster processing with slightly lower quality</td>
+                    </tr>
+                    <tr>
+                        <td><code>htdemucs_6s</code></td>
+                        <td><strong>6</strong></td>
+                        <td>Vocals, Drums, Bass, Other, <span class="tag tag-stem">Piano</span>, <span class="tag tag-stem">Guitar</span></td>
+                        <td>★★★★☆</td>
+                        <td>Isolates piano + guitar as separate tracks</td>
+                    </tr>
+                    <tr>
+                        <td><code>hdemucs_mmi</code></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★★☆</td>
+                        <td>v3 architecture — different separation profile</td>
+                    </tr>
+                    <tr>
+                        <td><code>mdx</code></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★★☆</td>
+                        <td>MDX Challenge winner — good speed/quality</td>
+                    </tr>
+                    <tr>
+                        <td><code>mdx_extra</code></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★★★</td>
+                        <td>More robust with extra training data</td>
+                    </tr>
+                    <tr>
+                        <td><code>mdx_q</code> <span class="tag tag-light">Light</span></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★☆☆</td>
+                        <td>Quantized — very fast, low VRAM, lower quality</td>
+                    </tr>
+                    <tr>
+                        <td><code>mdx_extra_q</code> <span class="tag tag-light">Light</span></td>
+                        <td>4</td>
+                        <td>Vocals, Drums, Bass, Other</td>
+                        <td>★★★☆☆</td>
+                        <td>Quantized extra — good for low VRAM systems</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3 style="margin-top: 2rem;">Stem Descriptions</h3>
+            <div class="grid-2">
+                <div class="card">
+                    <span class="icon">🎤</span>
+                    <h3>Vocals</h3>
+                    <p>The lead vocal track. This is the primary output — VocalPro applies extensive post-processing (gating, denoising, multi-band filtering) to deliver the cleanest possible voice isolation. Optionally mixed with separated sound effects.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🥁</span>
+                    <h3>Drums</h3>
+                    <p>All percussive elements — kick drum, snare, hi-hats, cymbals, toms, and any other percussion. Demucs isolates these using the model's learned understanding of transient-heavy sounds.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🎸</span>
+                    <h3>Bass</h3>
+                    <p>The bass guitar or synth bass line. Contains low-frequency harmonic content that Demucs separates by recognizing consistent sub-bass patterns distinct from kick drum transients.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🎛️</span>
+                    <h3>Other</h3>
+                    <p>Everything else — guitars, keyboards, strings, brass, synths, pads, and any instrument not classified as vocals, drums, or bass. This is the most diverse stem and is further post-processed for SFX separation if enabled.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🎹</span>
+                    <h3>Piano (6-stem only)</h3>
+                    <p>Isolated piano track — only available with the <code>htdemucs_6s</code> model. The model has a dedicated output head trained specifically to recognize piano timbre across the full frequency range.</p>
+                </div>
+                <div class="card">
+                    <span class="icon">🎸</span>
+                    <h3>Guitar (6-stem only)</h3>
+                    <p>Isolated guitar track — only available with the <code>htdemucs_6s</code> model. Covers both acoustic and electric guitars, recognized by their characteristic harmonic structure and transient decay.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ How Separation Works ════════════ -->
+    <section id="how-it-works">
+        <div class="container">
+            <span class="section-label">Pipeline</span>
+            <h2>How Stem Separation Works</h2>
+            <p>
+                The separation pipeline is a multi-stage process that converts a mixed audio file
+                into individual stem tracks. Here's exactly what happens under the hood.
+            </p>
+
+            <!-- Pipeline Diagram -->
+            <div class="pipeline">
+                <span class="pipeline-item accent">📂 Load Audio</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🧠 Demucs Model</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🎛️ Split into Stems</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🔊 Post-Process</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🎚️ Stem Mixer</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item accent">💾 Export</span>
+            </div>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h3>Load &amp; Prepare Audio</h3>
+                        <p>
+                            The input file (audio or video) is loaded using <strong>soundfile</strong> or
+                            <strong>FFmpeg</strong>. For video files, the audio stream is extracted as a
+                            high-quality WAV. The audio is resampled to the model's native sample rate
+                            (44.1 kHz) using <strong>torchaudio</strong> resampling with GPU acceleration.
+                            The resulting waveform tensor is shaped as <code>(1, channels, samples)</code>
+                            for the model.
+                        </p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h3>AI Model Inference (Demucs)</h3>
+                        <p>
+                            The core separation is performed by <strong>Demucs</strong> — a Hybrid
+                            Transformer architecture that combines convolutional U-Net layers with
+                            transformer self-attention. The model processes the audio through:
+                        </p>
+                        <ul>
+                            <li><strong>Segmentation</strong> — The audio is split into overlapping segments
+                                (default 24 seconds, configurable). Each segment is processed independently.</li>
+                            <li><strong>Shift Averaging</strong> — Each segment is shifted by random
+                                offsets (<code>shifts</code> parameter, default 5). The model processes
+                                each shift, then the results are averaged. This reduces boundary artifacts
+                                and improves separation quality by 1-3 dB SDR.</li>
+                            <li><strong>Overlap-Add</strong> — Segments are reassembled with raised-cosine
+                                crossfade (25% overlap) to eliminate click artifacts at segment boundaries.</li>
+                            <li><strong>Normalization</strong> — The model applies internal gain staging
+                                to maintain consistent levels regardless of input loudness.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h3>Source Separation &amp; Stem Output</h3>
+                        <p>
+                            The model outputs a tensor of shape <code>(1, sources, channels, samples)</code>
+                            where <code>sources</code> corresponds to each stem type (4 for standard models,
+                            6 for htdemucs_6s). Each source is extracted as a separate NumPy array via
+                            <code>stems[0, i, :, :total_frames].cpu().numpy()</code>. These arrays are
+                            returned as a dictionary keyed by source name: <code>{'vocals': ..., 'drums': ..., 'bass': ..., 'other': ...}</code>.
+                        </p>
+                        <p>
+                            The model's <code>sources</code> attribute determines which stems are produced.
+                            Standard Demucs sources: <code>['vocals', 'drums', 'bass', 'other']</code>. The
+                            <code>htdemucs_6s</code> model adds <code>'piano'</code> and <code>'guitar'</code>.
+                        </p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h3>Post-Processing Pipeline</h3>
+                        <p>
+                            The raw separated stems go through an intensive refinement pipeline. The
+                            vocals stem receives the most processing:
+                        </p>
+                        <ul>
+                            <li><strong>Vocal Activity Detection (VAD)</strong> — Analyzes RMS energy,
+                                spectral flatness, and spectral centroid to identify vocal vs. silent regions.</li>
+                            <li><strong>Spectral Noise Reduction</strong> — noisereduce spectral gating
+                                with non-stationary mode removes residual music bleed from vocal sections.</li>
+                            <li><strong>Multi-Band Denoising</strong> — Applies different denoising strengths
+                                to low (rumble), mid (vocal range), and high (hiss) frequency bands independently
+                                using zero-phase Butterworth filters.</li>
+                            <li><strong>Adaptive Gate Floor</strong> — Dynamically measures the actual noise
+                                floor from VAD-identified silent sections and adjusts the gate threshold accordingly.</li>
+                            <li><strong>Vocal Gating</strong> — Silences instrumental-only sections while
+                                preserving natural vocal attack/decay with smooth raised-cosine fades.</li>
+                            <li><strong>HPSS SFX Separation</strong> — Optionally decomposes the "other"
+                                stem into harmonic (sustained music) and percussive (sound effects, impacts,
+                                transients) components using librosa HPSS.</li>
+                            <li><strong>Karaoke Mode</strong> — Sums all non-vocal stems (drums, bass, other,
+                                piano, guitar) into a single instrumental karaoke track saved alongside the vocals.</li>
+                            <li><strong>Ensemble Mode</strong> — Runs audio through both <code>htdemucs_ft</code>
+                                and <code>mdx_extra</code> models and averages their vocal outputs for cleaner results.</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">5</div>
+                    <div class="step-content">
+                        <h3>Stem Mixer &amp; Export</h3>
+                        <p>
+                            After separation, all stems are available in the output folder. The Stem Mixer
+                            UI panel gives you individual volume sliders (0–200%) for each stem. You can:
+                        </p>
+                        <ul>
+                            <li><strong>Mix &amp; Export</strong> — Blend all stems at custom levels into a single WAV/MP3/FLAC file</li>
+                            <li><strong>Export All (Custom)</strong> — Save each stem at its slider level as a separate file</li>
+                            <li><strong>Export All Stems</strong> — Save every stem at full volume (0 dB) as separate files</li>
+                            <li><strong>MIDI Extraction</strong> — Extract pitch contours from any melodic stem using librosa.pyin and save as a standard MIDI file</li>
+                            <li><strong>MIDI All</strong> — Batch MIDI extraction from all melodic stems at once</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Stem Mixer ════════════ -->
+    <section id="stem-mixer">
+        <div class="container">
+            <span class="section-label">Remixing</span>
+            <h2>Stem Mixer — Full Control Over Each Track</h2>
+            <p>
+                After separation, the Stem Mixer panel appears in the Flutter GUI with individual
+                volume sliders for every separated stem. The number of sliders adapts automatically
+                based on the model used — 4 for standard models, 6 for <code>htdemucs_6s</code>.
+            </p>
+
+            <div class="flow-diagram">
+                <div class="flow-box">
+                    <div class="title">🎤 Vocals</div>
+                    <div class="sub">0–200%</div>
+                </div>
+                <span class="flow-arrow">+</span>
+                <div class="flow-box">
+                    <div class="title">🥁 Drums</div>
+                    <div class="sub">0–200%</div>
+                </div>
+                <span class="flow-arrow">+</span>
+                <div class="flow-box">
+                    <div class="title">🎸 Bass</div>
+                    <div class="sub">0–200%</div>
+                </div>
+                <span class="flow-arrow">+</span>
+                <div class="flow-box">
+                    <div class="title">🎛️ Other</div>
+                    <div class="sub">0–200%</div>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-box" style="border-color: var(--accent);">
+                    <div class="title">🎧 Mix</div>
+                    <div class="sub">Output file</div>
+                </div>
+            </div>
+
+            <div class="feature-detail">
+                <div class="detail-card">
+                    <h4>🎚️ Per-Stem Volume Sliders</h4>
+                    <p>Each stem gets its own slider ranging from <strong>0%</strong> (muted) to <strong>200%</strong> (+6 dB gain). Drag to remix the balance. The slider positions are displayed as percentage values next to each control.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🎧 Mix &amp; Export</h4>
+                    <p>Blends all stems at their current slider levels into a single audio file named <code>stem_mix.wav</code> (or .mp3/.flac). The API endpoint <code>POST /api/stems/export</code> reads each stem file, applies the volume gain, sums them together, and writes the result with a master volume multiplier.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>📦 Export All (Custom)</h4>
+                    <p>Exports every stem as a separate WAV file, each at its individual slider level. Result files are named <code>{stem}_custom.wav</code>. Uses the API endpoint <code>POST /api/stems/export_separate</code>.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>📤 Export All Stems</h4>
+                    <p>Saves every stem at full 0 dB volume (no slider adjustment) as separate files. Useful when you just want all the raw stems without any custom mixing.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🎵 MIDI Extraction (Per-Stem)</h4>
+                    <p>Click the <strong>🎵 MIDI</strong> button next to any melodic stem to extract its pitch contour. Uses <code>librosa.pyin</code> (probabilistic YIN algorithm) with frequency range C2–C7. Detected pitches are quantized to MIDI notes, written as a standard <code>.mid</code> file. Also saves a debug WAV of the detected pitches.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🎵 MIDI All</h4>
+                    <p>Batch MIDI extraction from all melodic stems (vocals, piano, guitar, bass) at once, saving individual <code>.mid</code> files for each. Uses the same librosa.pyin algorithm as single-stem extraction.</p>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <h4>🔧 How Mixing Works Under the Hood</h4>
+                <p>
+                    When you adjust a slider and export, the Flutter frontend sends a request to
+                    <code>POST /api/stems/export</code> with the folder name, per-stem volume map
+                    (e.g. <code>{'vocals': 0.8, 'drums': 0.5, 'bass': 1.2, 'other': 0.7}</code>),
+                    and a master volume. The API reads each stem WAV file with soundfile, applies
+                    the gain factor, sums them together sample-by-sample, and writes the mixed result.
+                    The preview endpoint (<code>/api/stems/preview</code>) does the same but only
+                    processes the first 15 seconds and returns an in-memory WAV stream for quick auditioning.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Post-Processing ════════════ -->
+    <section id="post-processing">
+        <div class="container">
+            <span class="section-label">Refinement</span>
+            <h2>Post-Processing: From Raw Stems to Polished Audio</h2>
+            <p>
+                Raw separated stems from Demucs can have residual bleed from other instruments.
+                VocalPro's post-processing pipeline cleans this up with surgical precision.
+            </p>
+
+            <div class="pipeline">
+                <span class="pipeline-item">🎤 VAD Detection</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🔇 Vocal Gating</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🔊 Spectral Denoise</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🎛️ Multi-Band Denoise</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">📊 Adaptive Floor</span>
+                <span class="pipeline-arrow">→</span>
+                <span class="pipeline-item">🔬 HPSS SFX Sep.</span>
+            </div>
+
+            <div class="feature-detail">
+                <div class="detail-card">
+                    <h4>🎤 Vocal Activity Detection (VAD)</h4>
+                    <p>Combines three features for robust detection: <strong>RMS energy</strong> (loudness), <strong>spectral flatness</strong> (tonality vs. noise), and <strong>spectral centroid</strong> (brightness). Frames are classified as vocal if at least 2 of the 3 features exceed adaptive thresholds. A minimum vocal duration filter (default 0.05s) prevents short noise bursts from triggering false positives, and a margin of 4 frames pads vocal regions to avoid cutting off natural attack/decay.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🔇 Vocal Gating</h4>
+                    <p>Uses the VAD envelope to apply smooth gain: vocal regions pass through at unity gain, while non-vocal regions are attenuated to the gate floor (default −60 dB). Attack/release times (10 ms / 100 ms) prevent clicks. The gate floor can be set adaptively based on measured noise from silent sections.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🔊 Spectral Denoising</h4>
+                    <p>Applies <strong>noisereduce</strong> spectral gating with non-stationary noise mode (adaptive to varying music backgrounds). If <strong>noise profiling</strong> is enabled, a noise sample is extracted from VAD-identified silent sections for targeted removal. Strength parameter (0–1) controls how aggressive the reduction is.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🎛️ Multi-Band Denoising</h4>
+                    <p>Splits the signal into three bands using zero-phase Butterworth filters: <strong>low</strong> (rumble, &lt;250 Hz), <strong>mid</strong> (vocal range, 250–6000 Hz), and <strong>high</strong> (hiss, &gt;6000 Hz). Each band gets its own denoising strength — mid band is treated gently (default 0.30) to preserve voice quality, while low (0.65) and high (0.60) bands are denoised more aggressively. The bands are summed back exactly: L + M + H = original signal.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>📊 Adaptive Gate Floor</h4>
+                    <p>Instead of a fixed silence threshold, VocalPro measures the actual noise floor from the quietest 10th percentile of VAD-silent frames. The gate floor is set to this measured noise floor + 3 dB headroom, ensuring optimal silence without cutting into quiet vocal passages.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🔬 HPSS SFX Separation</h4>
+                    <p>Uses <strong>Harmonic-Percussive Source Separation</strong> from librosa to decompose the "other" (background music) stem into two components: <strong>harmonic</strong> (sustained musical tones — the music track) and <strong>percussive</strong> (transients, impacts, clicks — the sound effects). Uses asymmetric margins (harmonic: 3 dB, percussive: 1 dB) with a small kernel size (15 samples) to favor SFX preservation. No separate model required — mathematically exact.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🎤 Karaoke Mode</h4>
+                    <p>When enabled, all non-vocal stems (drums, bass, other, piano, guitar) are summed together into a single instrumental track and saved as <code>{filename}_karaoke.wav</code>. The vocals are saved separately as usual. The mix is computed by summing the NumPy arrays element-wise — stems are zero-padded to match the longest duration.</p>
+                </div>
+                <div class="detail-card">
+                    <h4>🔀 Ensemble Mode</h4>
+                    <p>Runs audio through <strong>two different models</strong> — <code>htdemucs_ft</code> and <code>mdx_extra</code> — then averages their vocal outputs. This combines the strengths of both architectures: the fine-tuned transformer and the MDX challenge winner. Results are cleaner but processing takes roughly 2× longer. Each model is loaded sequentially from the global model cache.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Export & MIDI ════════════ -->
+    <section id="export">
+        <div class="container">
+            <span class="section-label">Export</span>
+            <h2>Export Options &amp; MIDI Extraction</h2>
+            <p>
+                VocalPro offers multiple export paths depending on your workflow — from simple
+                vocal-only export to full multi-stem MIDI extraction.
+            </p>
+
+            <div class="steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h3>Output Format</h3>
+                        <p>
+                            Choose from <strong>WAV</strong> (uncompressed, 44.1 kHz 32-bit float — highest quality),
+                            <strong>MP3</strong> (compressed, adjustable bitrate default 320 kbps — smaller files),
+                            or <strong>FLAC</strong> (lossless compressed — best of both worlds). Format conversion
+                            is done via FFmpeg after the separation is complete.
+                        </p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h3>Video Muxing</h3>
+                        <p>
+                            For video inputs, you have three output modes controlled by the
+                            <code>video_output_mode</code> setting:
+                        </p>
+                        <ul>
+                            <li><strong>both</strong> — Keeps the separated audio file AND creates a new MP4 with
+                                the clean vocals muxed back into the original video.</li>
+                            <li><strong>video_only</strong> — Only saves the muxed MP4 (with clean vocals).
+                                The standalone audio file is deleted after muxing.</li>
+                            <li><strong>audio_only</strong> — Only saves the separated audio files.
+                                No video muxing is performed.</li>
+                        </ul>
+                        <p>
+                            Muxing uses FFmpeg with a filter chain: <code>atrim=0:duration, apad</code> to ensure
+                            sample-accurate sync with the video stream. If enabled, <code>movflags +faststart</code>
+                            optimizes the MP4 for web streaming.
+                        </p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h3>Output Folder Structure</h3>
+                        <p>When a separation completes, the output folder (default <code>output_vocals/</code>) contains:</p>
+                        <pre><code>output_vocals/
+  └── SongName_YYYY-MM-DD_HHMMSS/
+      ├── SongName_vocals.wav          # Clean vocal track
+      ├── SongName_vocals.mp3          # (if MP3/FLAC format selected)
+      ├── SongName_background.wav      # (if Save Background enabled)
+      ├── SongName_karaoke.wav         # (if Karaoke mode enabled)
+      ├── SongName_sound_effects.wav   # (if SFX separation enabled)
+      ├── SongName_vocals_sfx_mix.wav  # (if Mix With SFX enabled)
+      ├── SongName_clean.mp4           # (for video inputs, if video mode enabled)
+      ├── samples/
+      │   ├── sample_1_music.wav       # Comparison clips
+      │   ├── sample_1_no_music.wav
+      │   ├── sample_2_music.wav
+      │   └── sample_2_no_music.wav
+      ├── drums.wav                   # Raw stem files
+      ├── bass.wav
+      ├── other.wav
+      ├── piano.wav                   # (6-stem model only)
+      └── guitar.wav                  # (6-stem model only)</code></pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h3>MIDI Extraction (Deep Dive)</h3>
+                        <p>
+                            The MIDI extraction feature converts melodic audio into playable MIDI
+                            files — useful for transcription, remixing, or feeding into a DAW.
+                            Here's the technical process:
+                        </p>
+                        <ul>
+                            <li><strong>Pitch Detection</strong> — Uses <code>librosa.pyin</code> (Probabilistic
+                                YIN algorithm) which estimates fundamental frequency (F0) using a probabilistic
+                                approach that handles noisy signals well. Frequency range: C2 (~65 Hz) to C7 (~2093 Hz).</li>
+                            <li><strong>Onset Detection</strong> — <code>librosa.onset.onset_detect</code> with
+                                backtracking identifies note boundaries from the spectral flux.</li>
+                            <li><strong>Note Quantization</strong> — For each onset-to-onset interval, the median pitch
+                                is computed from the F0 values within that segment. This pitch is converted to a
+                                MIDI note number using: <code>midi_note = round(12 × log₂(freq / 440) + 69)</code>.</li>
+                            <li><strong>MIDI File Writing</strong> — A standard single-track MIDI file is written
+                                manually with proper header (MThd), tempo meta event (default 120 BPM), and
+                                Note On/Off events with delta-time encoding using variable-length quantity (VLQ).</li>
+                            <li><strong>Output Files</strong> — Each extracted stem produces: a <strong>raw .mid</strong>
+                                file (pitch quantized) and a <strong>debug .wav</strong> (the detected pitch contour
+                                as an audible sine wave for verification).</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">5</div>
+                    <div class="step-content">
+                        <h3>Comparison Samples</h3>
+                        <p>
+                            If enabled, VocalPro automatically extracts <strong>3 random short clips</strong>
+                            (5 seconds each, from different regions of the file) and saves them as
+                            <code>sample_N_music.wav</code> (original) and <code>sample_N_no_music.wav</code>
+                            (separated vocals) in a <code>samples/</code> subfolder. The file is divided into
+                            3 equal regions, with one sample randomly selected from each region to ensure
+                            coverage across the full duration.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Settings ════════════ -->
+    <section id="settings">
+        <div class="container">
+            <span class="section-label">Configuration</span>
+            <h2>Every Setting That Controls Stem Behavior</h2>
+            <p>
+                These configuration options directly affect which stems are produced, how they're
+                processed, and what gets exported. All settings are adjustable through the GUI and
+                persisted to <code>~/.vocalpro_config.json</code>.
+            </p>
+
+            <div class="settings-grid">
+                <div class="setting-item">
+                    <span class="key">model_name</span>
+                    <div class="desc"><strong>AI Model</strong><span>Determines which stems are produced. 4-stem models output vocals/drums/bass/other. <code>htdemucs_6s</code> adds piano + guitar.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">segment</span>
+                    <div class="desc"><strong>Segment Length (sec)</strong><span>2–60. Controls how much audio the model sees at once. Longer = better context but more VRAM. Auto-scaled based on GPU memory: 24s for 12+ GB, 16s for 8+ GB, 10s for 6+ GB, 6s for &lt;6 GB.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">overlap</span>
+                    <div class="desc"><strong>Overlap (sec)</strong><span>0.1–8. Controls adjacent segment overlap for the crossfade merge. Higher = smoother transitions but more processing.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">shifts</span>
+                    <div class="desc"><strong>Model Passes (Shifts)</strong><span>1–10. Random shift averaging reduces boundary artifacts. 1 = fastest, 5+ = best quality. Each shift processes the entire audio again with a different random offset.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">output_all_stems</span>
+                    <div class="desc"><strong>Output All Stems</strong><span>When enabled, every separated stem is saved as an individual WAV file in the output folder. When disabled, only the processed vocals file is kept.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">output_format</span>
+                    <div class="desc"><strong>Output Format</strong><span>WAV (lossless), MP3 (compressed, bitrate from audio_bitrate), or FLAC (lossless compressed). Applied to all exported audio files.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">include_sfx</span>
+                    <div class="desc"><strong>Include SFX in Mix</strong><span>When enabled, the separated sound effects (percussive component of HPSS) are mixed back into the vocal track at a reduced level, adding ambience and spatial context.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">save_background_track</span>
+                    <div class="desc"><strong>Save Background</strong><span>Saves the full background music track (all non-vocal stems summed) as a separate WAV file. Disabled by default to save disk space.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">generate_comparison_samples</span>
+                    <div class="desc"><strong>Comparison Samples</strong><span>When enabled, 3 random short clips from original and separated audio are saved for A/B comparison. Helpful for evaluating separation quality.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">karaoke_mode</span>
+                    <div class="desc"><strong>Karaoke Mode</strong><span>When enabled, all non-vocal stems are summed into a single <code>_karaoke.wav</code> instrumental file. Perfect for practice, covers, or backing tracks.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">ensemble_mode</span>
+                    <div class="desc"><strong>Ensemble Mode</strong><span>Runs both htdemucs_ft and mdx_extra models and averages the vocal outputs. Produces cleaner vocals at 2× processing time. Skipped for large files.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">enable_sfx_separation</span>
+                    <div class="desc"><strong>SFX Separation</strong><span>Splits the "other" stem into music (harmonic) and sound effects (percussive) using HPSS. The SFX file is saved separately and can be mixed back into vocals.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">sfx_separation_margin_db</span>
+                    <div class="desc"><strong>SFX Margin (dB)</strong><span>1–30. Controls HPSS separation aggressiveness. Higher = more aggressive separation between harmonic and percussive content.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">sfx_kernel_size</span>
+                    <div class="desc"><strong>SFX Kernel Size</strong><span>5–99 (odd). Median filter kernel size for HPSS. Smaller values (13–21) better capture short transients like footsteps and clicks.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">sfx_margin_harmonic_db</span>
+                    <div class="desc"><strong>SFX Harmonic Margin</strong><span>0–30. Higher = pushes more content to the percussive/SFX side. Default 3 dB for good SFX preservation.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">sfx_margin_percussive_db</span>
+                    <div class="desc"><strong>SFX Percussive Margin</strong><span>0–30. Lower = more content kept as SFX. Default 1 dB to maximize SFX capture.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">enable_vocal_gate</span>
+                    <div class="desc"><strong>Vocal Gate</strong><span>When enabled, instrumental-only sections (no singing detected) are silenced, leaving only passages with active vocals.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">gate_threshold_db</span>
+                    <div class="desc"><strong>Gate Threshold (dB)</strong><span>−80 to −10. Lower = more sensitive vocal detection. Default −55 dB captures quiet vocals while rejecting low-level bleed.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">gate_floor_db</span>
+                    <div class="desc"><strong>Gate Floor (dB)</strong><span>−90 to −20. Silence level when gate is closed. Lower = quieter silence sections.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">enable_spectral_denoise</span>
+                    <div class="desc"><strong>Spectral Denoising</strong><span>Reduces residual music bleed from other stems in the vocal track using spectral gating noise reduction.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">denoise_strength</span>
+                    <div class="desc"><strong>Denoise Strength</strong><span>0–1. How aggressively to remove noise. Default 0.65 balances vocal preservation with noise reduction.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">enable_multiband_denoise</span>
+                    <div class="desc"><strong>Multi-Band Denoising</strong><span>Splits audio into low/mid/high bands with per-band denoising. Mid band (vocal range) gets gentler treatment to preserve voice quality.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">denoise_strength_low</span>
+                    <div class="desc"><strong>Low Band Strength</strong><span>0–1. Denoising strength for rumble (&lt;250 Hz). Default 0.65.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">denoise_strength_mid</span>
+                    <div class="desc"><strong>Mid Band Strength</strong><span>0–1. Denoising for vocal range (250–6000 Hz). Default 0.30 — gentle to preserve voice.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">denoise_strength_high</span>
+                    <div class="desc"><strong>High Band Strength</strong><span>0–1. Denoising for hiss (&gt;6000 Hz). Default 0.60.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">enable_noise_profile</span>
+                    <div class="desc"><strong>Noise Profiling</strong><span>Extracts a noise sample from VAD-identified silent sections and uses it for targeted spectral denoising. Improves noise reduction accuracy.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">adaptive_gate_floor</span>
+                    <div class="desc"><strong>Adaptive Gate Floor</strong><span>Dynamically adjusts the gate floor based on measured noise floor from silent sections. Ensures optimal silence without cutting quiet vocals.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">trim_silence</span>
+                    <div class="desc"><strong>Trim Silence</strong><span>Removes leading and trailing silence from the output file based on RMS energy threshold.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">min_vocal_duration</span>
+                    <div class="desc"><strong>Min Vocal Duration (sec)</strong><span>0.01–5. Minimum duration of a detected vocal segment to keep. Prevents short noise bursts from being classified as vocals.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">video_output_mode</span>
+                    <div class="desc"><strong>Video Output Mode</strong><span><code>both</code> = keep muxed video + audio file, <code>video_only</code> = keep only muxed video, <code>audio_only</code> = keep only audio files.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">large_file_threshold_minutes</span>
+                    <div class="desc"><strong>Large File Threshold</strong><span>1–480 min. Files above this threshold use chunked processing (split into segments, process individually, merge with crossfade). Default 15 min.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">chunk_duration_minutes</span>
+                    <div class="desc"><strong>Chunk Duration (min)</strong><span>Duration of each processing chunk for large files. Smaller chunks use less memory but produce more segments to merge.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">overlap_seconds</span>
+                    <div class="desc"><strong>Chunk Overlap (sec)</strong><span>Overlap between adjacent chunks for smooth crossfade merging. Higher = smoother transitions but more redundant processing.</span></div>
+                </div>
+                <div class="setting-item">
+                    <span class="key">cooldown_between_chunks_seconds</span>
+                    <div class="desc"><strong>Chunk Cooldown</strong><span>Pause between chunk processing steps. Useful for thermal management on laptops during long processing sessions.</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ API Endpoints ════════════ -->
+    <section id="api">
+        <div class="container">
+            <span class="section-label">API Reference</span>
+            <h2>Stem-Related API Endpoints</h2>
+            <p>
+                The backend exposes dedicated REST endpoints for stem mixing, previewing, and
+                MIDI extraction. These are called by the Flutter frontend's Stem Mixer UI.
+            </p>
+
+            <div style="margin-top: 1.5rem;">
+                <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                        <code style="background: rgba(34, 197, 94, 0.15); color: var(--success);">POST</code>
+                        <code style="font-size: 0.9rem;">/api/stems/preview</code>
+                    </div>
+                    <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0;">
+                        Returns a 15-second WAV preview of stems mixed at given volumes. Accepts
+                        <code>folder_name</code>, <code>volumes</code> (per-stem gain map), and
+                        <code>master_volume</code>. Useful for auditioning slider adjustments before exporting.
+                    </p>
+                </div>
+
+                <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                        <code style="background: rgba(34, 197, 94, 0.15); color: var(--success);">POST</code>
+                        <code style="font-size: 0.9rem;">/api/stems/export</code>
+                    </div>
+                    <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0;">
+                        Mix all stems at custom volumes and export as a single audio file
+                        (<code>stem_mix.{format}</code>). Accepts <code>folder_name</code>,
+                        <code>volumes</code>, <code>master_volume</code>, and <code>output_format</code>.
+                        Returns the output file path and size.
+                    </p>
+                </div>
+
+                <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                        <code style="background: rgba(34, 197, 94, 0.15); color: var(--success);">POST</code>
+                        <code style="font-size: 0.9rem;">/api/stems/export_separate</code>
+                    </div>
+                    <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0;">
+                        Export each stem at its custom level as a separate file. Accepts
+                        <code>folder_name</code>, <code>volumes</code>, <code>master_volume</code>,
+                        and <code>output_format</code>. Returns a list of exported files with their sizes.
+                    </p>
+                </div>
+
+                <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                        <code style="background: rgba(34, 197, 94, 0.15); color: var(--success);">POST</code>
+                        <code style="font-size: 0.9rem;">/api/stems/midi</code>
+                    </div>
+                    <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 0;">
+                        Extract MIDI from a melodic stem file. Accepts <code>file_path</code>.
+                        Uses librosa.pyin for pitch detection, median-filtered note quantization,
+                        and standard MIDI file output (.mid). Returns the MIDI file path and note count.
+                    </p>
+                </div>
+            </div>
+
+            <div class="info-box" style="margin-top: 1.5rem;">
+                <h4>📂 Output Folder Structure</h4>
+                <p>
+                    All stem files are stored in <code>output_vocals/{SongName}/</code>. The
+                    <code>GET /api/outputs/{folder_name}/stems</code> endpoint lists all stem
+                    files in a given output folder by matching filenames against known stem
+                    suffixes (vocals, drums, bass, other, guitar, piano). The Flutter Results
+                    screen uses this to populate the Stem Mixer UI.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ════════════ Footer ════════════ -->
+    <footer>
+        <p>
+            <strong>VocalPro</strong> — AI-Powered Vocal &amp; Stem Separation<br>
+            Built with Flutter, FastAPI, PyTorch &amp; Demucs
+        </p>
+        <p style="margin-top: 0.5rem;">
+            <a href="vocal_pro.html">← Back to main VocalPro guide</a>
+            &nbsp;·&nbsp;
+            <a href="#">↑ Back to top</a>
+        </p>
+    </footer>
+
+</body>
+</html>

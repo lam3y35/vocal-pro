@@ -1,0 +1,8 @@
+[flake8]
+max-line-length = 120
+# E501: line too long (120 char limit is reasonable)
+# E402: module level import not at top of file (sys.path modification is common before project imports)
+# W291: trailing whitespace (minor style)
+extend-ignore = E501, E402, W291
+per-file-ignores = api_server/main.py: E302, E303, F824
+exclude = .git,__pycache__,venv,build,dist

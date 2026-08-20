@@ -1,6 +1,6 @@
 """Generate VocalPro desktop icon (.ico) with the app's dark + purple theme."""
 
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 import os
 
 def create_icon(output_path: str = "vocalpro.ico") -> None:

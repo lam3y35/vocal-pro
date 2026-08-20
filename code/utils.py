@@ -161,16 +161,41 @@ def extract_audio(input_path: str, output_wav_path: str, ffmpeg_path: Optional[s
     _run_ffmpeg(cmd, "extract_audio")
 
 
-def extract_chunk(input_wav: str, output_chunk: str, start_sec: float, duration_sec: float, ffmpeg_path: Optional[str] = None) -> None:
-    """Extract a chunk from an already-extracted WAV file."""
+def format_size(bytes_val: float) -> str:
+    """Format byte count as human-readable string (B/KB/MB/GB)."""
+    val = float(bytes_val)
+    for unit in ("B", "KB", "MB", "GB"):
+        if abs(val) < 1024.0:
+            return f"{val:.1f} {unit}"
+        val /= 1024.0
+    return f"{val:.1f} TB"
+
+
+def extract_chunk(input_wav: str, output_chunk: str, start_sec: float, duration_sec: float, ffmpeg_path: Optional[str] = None, channels: Optional[int] = None) -> None:
+    """Extract a chunk from an already-extracted WAV file.
+
+    If channels is provided, use it for -ac to force a channel count during extraction.
+    """
     exe = _get_exe("ffmpeg", ffmpeg_path)
+    # Start with defaults but optionally override channel count
+    ffmpeg_args = list(_FFMPEG_DEFAULTS)
+    if channels is not None:
+        # _FFMPEG_DEFAULTS contains '-ar', '44100', '-ac', '2' by default
+        # Find '-ac' index and replace following value
+        try:
+            ac_idx = ffmpeg_args.index("-ac")
+            ffmpeg_args[ac_idx + 1] = str(channels)
+        except ValueError:
+            # Fallback: append channel setting
+            ffmpeg_args.extend(["-ac", str(channels)])
+
     cmd = [
         exe, "-y",
         "-ss", str(start_sec),
         "-t", str(duration_sec),
         "-i", input_wav,
         "-c:a", "pcm_f32le",
-        *_FFMPEG_DEFAULTS,
+        *ffmpeg_args,
         output_chunk,
     ]
     _run_ffmpeg(cmd, "extract_chunk")
