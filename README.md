@@ -272,6 +272,12 @@ Use a smaller model (`mdx_q` or `mdx_extra_q`) or reduce the segment size in Adv
 
 ---
 
+## 🤝 Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
