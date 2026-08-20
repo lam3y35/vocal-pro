@@ -26,7 +26,7 @@ echo  Found Python %PYVER%
 
 :: -- 1) Create virtual environment ----------------------------------
 echo.
-echo  [1/4] Creating virtual environment...
+echo  [1/5] Creating virtual environment...
 if exist venv (
     echo         venv already exists, skipping.
 ) else (
@@ -41,7 +41,7 @@ if exist venv (
 
 :: -- 2) Install Python dependencies ---------------------------------
 echo.
-echo  [2/4] Installing Python dependencies...
+echo  [2/5] Installing Python dependencies...
 call venv\Scripts\activate.bat
 
 if exist api_server\requirements.txt (
@@ -68,7 +68,7 @@ echo         Python dependencies installed.
 
 :: -- 3) Build Flutter app -------------------------------------------
 echo.
-echo  [3/4] Building Flutter frontend (if Flutter is installed)...
+echo  [3/5] Building Flutter frontend (if Flutter is installed)...
 where flutter >nul 2>&1
 if %errorlevel% equ 0 (
     cd flutter_app
@@ -89,7 +89,7 @@ if %errorlevel% equ 0 (
 
 :: -- 4) Verify FFmpeg -----------------------------------------------
 echo.
-echo  [4/4] Checking FFmpeg...
+echo  [4/5] Checking FFmpeg...
 ffmpeg -version >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
@@ -105,10 +105,36 @@ if %errorlevel% neq 0 (
 )
 
 echo.
+echo  [5/5] Creating desktop shortcut...
+
+set SCRIPT_DIR=%~dp0
+set SHORTCUT_NAME=VocalPro
+set DESKTOP_PATH=%USERPROFILE%\Desktop
+set TARGET=%SCRIPT_DIR%run.bat
+set ICON=%SCRIPT_DIR%vocalpro.ico
+
+if exist "%ICON%" (
+    echo Set WshShell = CreateObject("WScript.Shell") > "%TEMP%\vp_shortcut.vbs"
+    echo Set shortcut = WshShell.CreateShortCut("%DESKTOP_PATH%\%SHORTCUT_NAME%.lnk") >> "%TEMP%\vp_shortcut.vbs"
+    echo shortcut.TargetPath = "%TARGET%" >> "%TEMP%\vp_shortcut.vbs"
+    echo shortcut.IconLocation = "%ICON%,0" >> "%TEMP%\vp_shortcut.vbs"
+    echo shortcut.WorkingDirectory = "%SCRIPT_DIR%" >> "%TEMP%\vp_shortcut.vbs"
+    echo shortcut.Description = "VocalPro - AI Vocal Separation" >> "%TEMP%\vp_shortcut.vbs"
+    echo shortcut.Save >> "%TEMP%\vp_shortcut.vbs"
+    cscript //nologo "%TEMP%\vp_shortcut.vbs" >nul 2>&1
+    del "%TEMP%\vp_shortcut.vbs" >nul 2>&1
+    echo         Desktop shortcut created: %DESKTOP_PATH%\%SHORTCUT_NAME%.lnk
+) else (
+    echo         [SKIP] Icon file not found (vocalpro.ico)
+)
+
+echo.
 echo  ==============================================
 echo     Setup complete!
 echo  ==============================================
 echo.
-echo  To launch VocalPro, double-click run.bat
+echo  To launch VocalPro, double-click:
+    echo    - Desktop shortcut (VocalPro), or
+    echo    - run.bat in this folder
 echo.
 pause
