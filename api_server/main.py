@@ -1230,19 +1230,75 @@ def _write_midi(notes: list[dict], output_path: str, tempo: int = 120):
 
 # ── WebSocket for real-time progress ──────────────────────────────────
 
+_MAX_WS_CONNECTIONS = 4  # Max simultaneous WebSocket clients
+_WS_HEARTBEAT_INTERVAL = 15  # Server-side ping interval (seconds)
+_WS_HEARTBEAT_TIMEOUT = 30  # Close if no pong received within this (seconds)
+
+
 @app.websocket("/ws/progress")
 async def websocket_progress(websocket: WebSocket):
-    """WebSocket endpoint for real-time separation progress (per-job)."""
+    """WebSocket endpoint for real-time separation progress (per-job).
+
+    Features:
+    - Connection limit: rejects clients beyond _MAX_WS_CONNECTIONS to
+      prevent socket exhaustion from runaway clients.
+    - Server-side heartbeat: sends ping every _WS_HEARTBEAT_INTERVAL;
+      closes the connection if the client hasn't responded within
+      _WS_HEARTBEAT_TIMEOUT seconds (stale connection cleanup).
+    """
+    # ── Reject if too many connections ──
+    with _progress_lock:
+        if len(_progress_connections) >= _MAX_WS_CONNECTIONS:
+            logger.warning(
+                "WebSocket rejected: %d connections (limit %d)",
+                len(_progress_connections), _MAX_WS_CONNECTIONS,
+            )
+            await websocket.close(code=1013, reason="Too many connections")
+            return
+
     await websocket.accept()
     with _progress_lock:
         _progress_connections.append(websocket)
     logger.info("WebSocket client connected (%d total)", len(_progress_connections))
 
+    last_pong = time.time()
+
     try:
         while True:
-            data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_text(json.dumps({"type": "pong"}))
+            try:
+                # Wait for a message, but timeout periodically to check
+                # if the client is still alive (heartbeat).
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=_WS_HEARTBEAT_INTERVAL,
+                )
+                if data == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                    last_pong = time.time()
+                elif data == "pong":
+                    last_pong = time.time()
+            except asyncio.TimeoutError:
+                # No message received within heartbeat interval — send a
+                # ping to check if client is alive.
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    break
+                # Give the client _WS_HEARTBEAT_TIMEOUT - _WS_HEARTBEAT_INTERVAL
+                # seconds to respond before we consider it dead.
+                try:
+                    data = await asyncio.wait_for(
+                        websocket.receive_text(),
+                        timeout=_WS_HEARTBEAT_TIMEOUT - _WS_HEARTBEAT_INTERVAL,
+                    )
+                    if data in ("ping", "pong"):
+                        last_pong = time.time()
+                except asyncio.TimeoutError:
+                    # Client didn't respond — stale connection, close it.
+                    logger.info("WebSocket stale (no heartbeat response), closing")
+                    break
+                except Exception:
+                    break
     except WebSocketDisconnect:
         pass
     except Exception:

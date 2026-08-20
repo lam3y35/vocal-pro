@@ -328,31 +328,81 @@ class ApiService {
 
   WebSocketChannel? _channel;
   Timer? _pingTimer;
+  Timer? _reconnectTimer;
   bool _hasConnectedOnce = false;
+  bool _intentionalDisconnect = false;
   final _eventController = StreamController<ProgressEvent>.broadcast();
   Stream<ProgressEvent> get onProgress => _eventController.stream;
 
+  // Connection state tracking
+  WsConnectionState _wsState = WsConnectionState.disconnected;
+  WsConnectionState get wsState => _wsState;
+
+  // Exponential backoff: starts at 1s, doubles each retry, caps at 30s
+  int _reconnectAttempts = 0;
+  static const _initialBackoff = Duration(seconds: 1);
+  static const _maxBackoff = Duration(seconds: 30);
+  static const _maxReconnectAttempts = 50; // after this, stop trying
+  static const _backoffResetAfter = Duration(minutes: 2);
+  DateTime? _lastSuccessfulConnect;
+
+  Duration _getBackoffDelay() {
+    // Reset backoff if we were connected for a while (server probably
+    // restarted normally, not a crash loop).
+    if (_lastSuccessfulConnect != null &&
+        DateTime.now().difference(_lastSuccessfulConnect!) > _backoffResetAfter) {
+      _reconnectAttempts = 0;
+    }
+    final delay = Duration(
+      seconds: (1 << _reconnectAttempts.clamp(0, 4)).clamp(
+        _initialBackoff.inSeconds,
+        _maxBackoff.inSeconds,
+      ),
+    );
+    _reconnectAttempts++;
+    return delay;
+  }
+
   void connectWebSocket() {
+    // Don't reconnect if intentionally disconnected or at retry limit
+    if (_intentionalDisconnect) return;
+    if (_reconnectAttempts >= _maxReconnectAttempts) {
+      _eventController.add(ProgressEvent(
+        type: ProgressType.error,
+        message: 'WebSocket gave up reconnecting after $_maxReconnectAttempts attempts',
+      ));
+      return;
+    }
+
+    // Cancel any pending reconnect to avoid duplicate connections
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
     // ── Clean up any previous connection first ──────────────────────
     _pingTimer?.cancel();
     _pingTimer = null;
-    try {
-      _channel?.sink.close();
-    } catch (_) {}
+    _safeCloseChannel();
     _channel = null;
+    _wsState = WsConnectionState.connecting;
 
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
         (data) {
+          // Any data means the connection is alive
+          if (_wsState != WsConnectionState.connected) {
+            _wsState = WsConnectionState.connected;
+            _reconnectAttempts = 0; // Reset backoff on successful connect
+            _lastSuccessfulConnect = DateTime.now();
+          }
           final msg = jsonDecode(data);
           _eventController.add(ProgressEvent.fromJson(msg));
         },
         onError: (error) {
-          Future.delayed(const Duration(seconds: 3), connectWebSocket);
+          _scheduleReconnect();
         },
         onDone: () {
-          Future.delayed(const Duration(seconds: 3), connectWebSocket);
+          _scheduleReconnect();
         },
       );
 
@@ -360,31 +410,67 @@ class ApiService {
       // connect) so controllers can detect server restarts and recover
       // from stale state (e.g. stuck at "Initializing...").
       if (_hasConnectedOnce) {
+        _wsState = WsConnectionState.reconnecting;
         _eventController.add(ProgressEvent(
           type: ProgressType.reconnected,
         ));
       }
       _hasConnectedOnce = true;
 
-      _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      _pingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
         try {
           _channel?.sink.add('ping');
-        } catch (_) {}
+        } catch (_) {
+          _scheduleReconnect();
+        }
       });
     } catch (_) {
-      Future.delayed(const Duration(seconds: 3), connectWebSocket);
+      _scheduleReconnect();
     }
   }
 
-  void disconnectWebSocket() {
+  void _scheduleReconnect() {
+    if (_intentionalDisconnect) return;
+    _wsState = WsConnectionState.disconnected;
     _pingTimer?.cancel();
     _pingTimer = null;
-    _channel?.sink.close();
+    _safeCloseChannel();
     _channel = null;
+
+    final delay = _getBackoffDelay();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, connectWebSocket);
+  }
+
+  void _safeCloseChannel() {
+    try {
+      _channel?.sink.close();
+    } catch (_) {}
+  }
+
+  void disconnectWebSocket() {
+    _intentionalDisconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _pingTimer?.cancel();
+    _pingTimer = null;
+    _safeCloseChannel();
+    _channel = null;
+    _wsState = WsConnectionState.disconnected;
+    _reconnectAttempts = 0;
+  }
+
+  /// Re-enable reconnection (e.g. after a user-initiated retry).
+  void enableReconnection() {
+    _intentionalDisconnect = false;
+    _reconnectAttempts = 0;
   }
 
   void dispose() {
     _hasConnectedOnce = false;
+    _intentionalDisconnect = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     disconnectWebSocket();
     _eventController.close();
     _client.close();
@@ -394,6 +480,9 @@ class ApiService {
 // ── Progress event model ─────────────────────────────────────────────
 
 enum ProgressType { progress, fileStart, done, error, cancelled, pong, reconnected }
+
+/// WebSocket connection state for UI display.
+enum WsConnectionState { disconnected, connecting, connected, reconnecting }
 
 class ProgressEvent {
   final ProgressType type;
