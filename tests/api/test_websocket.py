@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 
 class TestWebSocket:
     def test_websocket_connect(self, client):

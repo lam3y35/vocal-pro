@@ -93,21 +93,7 @@ class AppLocalizations {
   String get languageDesc => _tr('languageDesc');
 
   // ── Home ────────────────────────────────────────────────────────
-  String get serverOnline => _tr('serverOnline');
-  String get serverOffline => _tr('serverOffline');
   String get refresh => _tr('refresh');
-  String get tagline => _tr('tagline');
-  String get backend => _tr('backend');
-  String get connected => _tr('connected');
-  String get disconnected => _tr('disconnected');
-  String get gpu => _tr('gpu');
-  String get notAvailable => _tr('notAvailable');
-  String get vram => _tr('vram');
-  String get quickActions => _tr('quickActions');
-  String get newSeparation => _tr('newSeparation');
-  String get viewResults => _tr('viewResults');
-  String get gettingStarted => _tr('gettingStarted');
-  String get instructions => _tr('instructions');
 
   // ── Separation ──────────────────────────────────────────────────
   String get separation => _tr('separation');
@@ -212,7 +198,6 @@ class AppLocalizations {
   String get audioBitrate => _tr('audioBitrate');
 
   // ── Sidebar ─────────────────────────────────────────────────────
-  String get home => _tr('home');
   String get stems => _tr('stems');
 
   // ── Waveform ────────────────────────────────────────────────────
@@ -231,13 +216,7 @@ class AppLocalizations {
   String get modelMdxQ => _tr('model_mdx_q');
   String get modelMdxExtraQ => _tr('model_mdx_extra_q');
 
-  // ── Backend auto-launch ────────────────────────────────────────
-  String get startingBackend => _tr('startingBackend');
-  String get backendConnected => _tr('backendConnected');
-  String get backendStarting => _tr('backendStarting');
-  String get backendStartFailed => _tr('backendStartFailed');
-  String get pythonPath => _tr('pythonPath');
-  String get pythonPathDesc => _tr('pythonPathDesc');
+
 
   // ── Late additions ──────────────────────────────────────────────
   String get advanced => _tr('advanced');

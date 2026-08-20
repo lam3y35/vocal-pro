@@ -1,10 +1,10 @@
 """Compatibility loader — import split omnibus test modules for discovery.
 
-This file intentionally minimal: keep for old CI/scripts that expect tests/omnibus/test_all.py
+Kept for old CI/scripts that expect tests/omnibus/test_all.py
 but real tests are split into topic files under tests/omnibus/.
 """
 
-from . import (
+from tests.omnibus import (  # noqa: F401
     test_config,
     test_utils,
     test_audio_postprocess,

@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import '../theme.dart';
 import '../widgets/cards.dart';
 import '../widgets/changelog_dialog.dart';
 import '../services/api_service.dart';
-import '../services/backend_service.dart';
+
 import '../utils/window_service.dart';
 import '../utils/file_associations.dart';
 import '../l10n/app_localizations.dart';
@@ -15,13 +14,13 @@ import '../l10n/locale_provider.dart';
 class SettingsScreen extends StatefulWidget {
   final ApiService api;
   final LocaleProvider localeProvider;
-  final BackendService backendService;
+
   final WindowService windowService;
   const SettingsScreen({
     super.key,
     required this.api,
     required this.localeProvider,
-    required this.backendService,
+
     required this.windowService,
   });
 
@@ -31,10 +30,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic> _config = {};
+  Map<String, dynamic> _defaults = {};
   bool _loading = true;
-  String _serverUrl = 'http://127.0.0.1:8000';
-  final _ffmpegController = TextEditingController();
-  final _pythonPathController = TextEditingController();
   final Map<String, TextEditingController> _textControllers = {};
 
   @override
@@ -42,8 +39,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _ffmpegController.dispose();
-    _pythonPathController.dispose();
     for (final c in _textControllers.values) { c.dispose(); }
     super.dispose();
   }
@@ -52,16 +47,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final resp = await widget.api.getConfig();
-      final cfg = Map<String, dynamic>.from(resp['config'] ?? {});
+      final results = await Future.wait([
+        widget.api.getConfig(),
+        widget.api.getDefaults(),
+      ]);
+      final cfg = Map<String, dynamic>.from(results[0]['config'] ?? {});
+      final defaults = Map<String, dynamic>.from(results[1]['defaults'] ?? {});
       if (!mounted) return;
-      setState(() { _config = cfg; _ffmpegController.text = cfg['ffmpeg_path'] ?? ''; _loading = false; });
+      setState(() {
+        _config = cfg;
+        _defaults = defaults;
+        _loading = false;
+      });
     } catch (e) { if (mounted) setState(() => _loading = false); }
   }
 
   Future<void> _saveSetting(String key, dynamic value) async {
     setState(() => _config[key] = value);
     try { await widget.api.updateConfig(key, value); } catch (_) {}
+  }
+
+  /// Reset a single setting to its factory default value.
+  Future<void> _resetToDefault(String key) async {
+    final defaultVal = _defaults[key];
+    if (defaultVal == null) return;
+    await _saveSetting(key, defaultVal);
+    if (!mounted) return;
+    _showSnack(context, '↺ $key reset to default', AppColors.info);
+  }
+
+  /// Small reset button widget for individual settings.
+  Widget _resetBtn(String key) {
+    return GestureDetector(
+      onTap: () => _resetToDefault(key),
+      child: Tooltip(
+        message: 'Reset to default',
+        child: Container(
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: AppColors.surfaceLight,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(Icons.refresh_rounded, size: 14, color: AppColors.textDim),
+        ),
+      ),
+    );
   }
 
   static const _sliderSettings = [
@@ -94,13 +124,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       Expanded(child: _loading
         ? const Center(child: CircularProgressIndicator(color: AppColors.accentPurple))
         : SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            _buildServerCard(l10n), const SizedBox(height: 16),
-            _buildPythonPathCard(l10n), const SizedBox(height: 16),
             _buildLanguageCard(l10n), const SizedBox(height: 16),
             _buildGeneralCard(l10n), const SizedBox(height: 16),
             _buildWindowCard(l10n), const SizedBox(height: 16),
             _buildSliderCard(), const SizedBox(height: 16),
-            _buildFfmpegCard(l10n), const SizedBox(height: 16),
           ]))),
     ]));
   }
@@ -118,6 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           'Pin the app window above all others',
           winSvc.alwaysOnTop,
           (v) => winSvc.setAlwaysOnTop(v),
+          configKey: null, // window settings are local, not from backend config
         ),
         _buildToggleRow(
           'Minimize to Tray',
@@ -184,44 +212,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return flags[code] ?? '🌐';
   }
 
-  // ── Server Connection ─────────────────────────────────────────
-
-  Widget _buildServerCard(AppLocalizations l10n) {
-    return GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SectionHeader(title: l10n.serverConnection, subtitle: l10n.serverEndpointSubtitle),
-      Row(children: [
-        Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.glassBorder)),
-          child: TextField(controller: TextEditingController(text: _serverUrl), style: AppTextStyles.mono(context),
-            decoration: const InputDecoration(border: InputBorder.none, hintText: 'http://127.0.0.1:8000'), onChanged: (v) => _serverUrl = v))),
-        const SizedBox(width: 8), GhostButton(label: l10n.test, icon: Icons.wifi_find_rounded, onPressed: _testConnection),
-      ]),
-    ]));
-  }
-
   // ── General Settings (toggles) ─────────────────────────────────
 
   Widget _buildGeneralCard(AppLocalizations l10n) {
     return GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SectionHeader(title: l10n.general, subtitle: l10n.processingBehavior),
-      _buildToggleRow(l10n.safeMode, l10n.safeModeDesc, _config['safe_mode'] ?? false, (v) => _saveSetting('safe_mode', v)),
-      _buildToggleRow(l10n.autoPreview, l10n.autoPreviewDesc, _config['auto_preview'] ?? false, (v) => _saveSetting('auto_preview', v)),
-      _buildToggleRow('Output All Stems', 'Save all separated stems individually', _config['output_all_stems'] ?? true, (v) => _saveSetting('output_all_stems', v)),
-      _buildToggleRow('Output Video', 'Mux clean audio back to video when input is video', _config['output_video'] ?? true, (v) => _saveSetting('output_video', v)),
-      _buildToggleRow('Faststart', 'Optimize MP4 for streaming (movflags +faststart)', _config['ffmpeg_faststart'] ?? true, (v) => _saveSetting('ffmpeg_faststart', v)),
+      _buildToggleRow(l10n.safeMode, l10n.safeModeDesc, _config['safe_mode'] ?? false, (v) => _saveSetting('safe_mode', v), configKey: 'safe_mode'),
+      _buildToggleRow(l10n.autoPreview, l10n.autoPreviewDesc, _config['auto_preview'] ?? false, (v) => _saveSetting('auto_preview', v), configKey: 'auto_preview'),
+      _buildToggleRow('Output All Stems', 'Save all separated stems individually', _config['output_all_stems'] ?? true, (v) => _saveSetting('output_all_stems', v), configKey: 'output_all_stems'),
+      _buildToggleRow('Output Video', 'Mux clean audio back to video when input is video', _config['output_video'] ?? true, (v) => _saveSetting('output_video', v), configKey: 'output_video'),
+      _buildToggleRow('Faststart', 'Optimize MP4 for streaming (movflags +faststart)', _config['ffmpeg_faststart'] ?? true, (v) => _saveSetting('ffmpeg_faststart', v), configKey: 'ffmpeg_faststart'),
       const SizedBox(height: 12),
       Text(l10n.outputFormat, style: AppTextStyles.body(context)),
       const SizedBox(height: 4),
-      Row(children: ['wav', 'mp3', 'flac'].map((fmt) {
-        final selected = (_config['output_format'] ?? 'wav') == fmt;
-        return Padding(padding: const EdgeInsets.only(right: 8), child: GestureDetector(onTap: () => _saveSetting('output_format', fmt),
-          child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            decoration: BoxDecoration(color: selected ? AppColors.accentPurple.withValues(alpha: 0.2) : AppColors.surfaceLight,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: selected ? AppColors.accentPurple : AppColors.glassBorder)),
-            child: Text(fmt.toUpperCase(), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
-              color: selected ? AppColors.accentPurple : AppColors.textDim)))));
-      }).toList()),
+      Row(children: [
+        ...['wav', 'mp3', 'flac'].map((fmt) {
+          final selected = (_config['output_format'] ?? 'wav') == fmt;
+          return Padding(padding: const EdgeInsets.only(right: 8), child: GestureDetector(onTap: () => _saveSetting('output_format', fmt),
+            child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(color: selected ? AppColors.accentPurple.withValues(alpha: 0.2) : AppColors.surfaceLight,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: selected ? AppColors.accentPurple : AppColors.glassBorder)),
+              child: Text(fmt.toUpperCase(), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                color: selected ? AppColors.accentPurple : AppColors.textDim)))));
+        }),
+        const Spacer(),
+        _resetBtn('output_format'),
+      ]),
       const SizedBox(height: 12),
       _buildTextFieldSetting(l10n.audioBitrate, 'audio_bitrate', '320k'),
       const SizedBox(height: 8),
@@ -240,69 +257,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ]));
   }
 
-  // ── Python Path ──────────────────────────────────────────────
-
-  Widget _buildPythonPathCard(AppLocalizations l10n) {
-    final current = widget.backendService.pythonPathOverride ?? 'python';
-    _pythonPathController.text = current;
-    return GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SectionHeader(title: 'PYTHON PATH', subtitle: 'Path to Python executable (for auto-launch)'),
-      Row(children: [
-        Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.glassBorder)),
-          child: TextField(controller: _pythonPathController, style: AppTextStyles.mono(context),
-            decoration: const InputDecoration(border: InputBorder.none, hintText: 'python'),
-            onChanged: (v) => widget.backendService.setPythonPath(v.trim())))),
-        const SizedBox(width: 8),
-        GhostButton(label: 'Reset', icon: Icons.refresh_rounded, onPressed: () {
-          _pythonPathController.text = 'python';
-          widget.backendService.setPythonPath('');
-        }),
-      ]),
-      const SizedBox(height: 6),
-      Text('The Python server auto-starts when the app opens. Set a custom path only if Python is not on PATH.',
-        style: AppTextStyles.caption(context)),
-    ]));
-  }
-
-  // ── FFmpeg Settings ──────────────────────────────────────────
-
-  Widget _buildFfmpegCard(AppLocalizations l10n) {
-    return GlassCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SectionHeader(title: l10n.ffmpeg, subtitle: l10n.ffmpegSubtitle),
-      Row(children: [
-        Expanded(child: Container(padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.glassBorder)),
-          child: TextField(controller: _ffmpegController, style: AppTextStyles.mono(context),
-            decoration: const InputDecoration(border: InputBorder.none, hintText: 'Optional: FFmpeg bin folder'),
-            onChanged: (v) => _saveSetting('ffmpeg_path', v)))),
-        const SizedBox(width: 8),
-        GhostButton(label: l10n.get('browse'), icon: Icons.folder_open_rounded, onPressed: () async {
-          final result = await FilePicker.platform.getDirectoryPath(
-            dialogTitle: 'Select FFmpeg bin folder',
-          );
-          if (result != null) {
-            _ffmpegController.text = result;
-            _saveSetting('ffmpeg_path', result);
-          }
-        }),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: [
-        _buildValueChip(l10n.audioBitrate, _config['audio_bitrate'] ?? '320k'),
-        const SizedBox(width: 8),
-        _buildValueChip(l10n.outputFolder, _config['output_dir'] ?? 'output_vocals/'),
-      ]),
-    ]));
-  }
-
   // ── Widget builders ──────────────────────────────────────────
 
-  Widget _buildToggleRow(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
+  Widget _buildToggleRow(String title, String subtitle, bool value, ValueChanged<bool> onChanged, {String? configKey}) {
     return Padding(padding: const EdgeInsets.symmetric(vertical: 6), child: Row(children: [
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(title, style: AppTextStyles.body(context)), Text(subtitle, style: AppTextStyles.caption(context)),
       ])),
+      if (configKey != null) Padding(padding: const EdgeInsets.only(right: 8), child: _resetBtn(configKey)),
       Switch(value: value, onChanged: onChanged, activeTrackColor: AppColors.accentPurple, inactiveTrackColor: AppColors.surfaceLight),
     ]));
   }
@@ -318,6 +280,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.glassBorder)),
         child: TextField(controller: controller, style: AppTextStyles.mono(context),
           decoration: const InputDecoration(border: InputBorder.none), onChanged: (v) => _saveSetting(configKey, v)))),
+      if (_defaults.containsKey(configKey)) Padding(padding: const EdgeInsets.only(left: 8), child: _resetBtn(configKey)),
     ]));
   }
 
@@ -332,8 +295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Text(def.isInt ? currentVal.toInt().toString() : currentVal.toStringAsFixed(def.key.contains('db') ? 0 : 2),
           style: AppTextStyles.body(context).copyWith(color: AppColors.accentPurple, fontWeight: FontWeight.w600)),
         const SizedBox(width: 8),
-        GestureDetector(onTap: () => _saveSetting(def.key, def.isInt ? def.min.round() : def.min),
-          child: Text('↺', style: TextStyle(color: AppColors.textDim, fontSize: 14))),
+        _resetBtn(def.key),
       ]),
       SliderTheme(data: SliderThemeData(activeTrackColor: AppColors.accentPurple, thumbColor: AppColors.accentPurple,
         overlayColor: AppColors.accentPurple.withValues(alpha: 0.15), inactiveTrackColor: AppColors.surfaceLight,
@@ -345,32 +307,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ]));
   }
 
-  Widget _buildValueChip(String label, String value) {
-    return Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: AppColors.surfaceLight, borderRadius: BorderRadius.circular(6), border: Border.all(color: AppColors.glassBorder)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text('$label: ', style: AppTextStyles.caption(context)),
-        Text(value, style: AppTextStyles.caption(context).copyWith(color: AppColors.accentPurple)),
-      ]));
-  }
-
   void _showSnack(BuildContext context, String msg, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating));
   }
 
-  Future<void> _testConnection() async {
-    final l10n = AppLocalizations.instance(context);
-    try {
-      final h = await widget.api.health();
-      if (h['status'] == 'ok' && mounted) {
-        _showSnack(context, '✅ ${l10n.serverOnline} — GPU: ${h['gpu_name'] ?? 'N/A'}', AppColors.success);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showSnack(context, '❌ ${l10n.serverOffline}: $e', AppColors.error);
-    }
-  }
+
 }
 
 class _SettingDef {

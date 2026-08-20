@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:window_manager/window_manager.dart';
 import 'theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/splash_screen.dart';
@@ -17,46 +16,16 @@ import 'utils/window_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── Window manager setup ──────────────────────────────────────────
-  await WindowManager.instance.ensureInitialized();
-  await WindowManager.instance.setTitle('VocalPro');
-  await WindowManager.instance.setSize(const Size(1280, 720));
-  await WindowManager.instance.setMinimumSize(const Size(960, 600));
-  await WindowManager.instance.center();
-  await WindowManager.instance.setSkipTaskbar(false);
-
+  // ── Window service (manages tray icon, window state) ────────────
   final winSvc = WindowService();
   await winSvc.init();
-  await winSvc.loadWindowPosition();
   await winSvc.setupTray();
 
-  // ── One-time setup tasks ─────────────────────────────────────────
-  createDesktopShortcut();
-  registerFileAssociations();
-
-  // ── Listen for window close to minimize-to-tray ──────────────────
-  WindowManager.instance.addListener(WindowCloseListener());
+  // ── One-time setup tasks (async — won't block UI) ─────────────
+  unawaited(createDesktopShortcut());
+  unawaited(registerFileAssociations());
 
   runApp(VocalProApp(windowService: winSvc));
-}
-
-/// Listens for window close events to minimize to tray instead.
-class WindowCloseListener extends WindowListener {
-  @override
-  void onWindowClose() async {
-    WindowService().handleClose();
-  }
-
-  @override
-  void onWindowResized() async {
-    // Save position periodically
-    WindowService().saveWindowPosition();
-  }
-
-  @override
-  void onWindowMoved() async {
-    WindowService().saveWindowPosition();
-  }
 }
 
 class VocalProApp extends StatefulWidget {
@@ -74,59 +43,32 @@ class _VocalProAppState extends State<VocalProApp> {
 
   bool _showSplash = true;
 
-  // Splash / backend state machine:
-  //   splashAnimate  – splash animation is still playing
-  //   backendLoading – backend is being started (animation may have finished)
-  //   backendReady   – backend is confirmed running (brief wait then fade)
-  //   backendError   – backend failed to start after max wait
-  String _appState = 'splashAnimate';
-  String? _backendError;
-  Timer? _splashTimer;
-
   @override
   void initState() {
     super.initState();
     _backendService = widget.backendService ?? BackendService();
     _startBackend();
-
-    // Minimum splash animation time (~2s) before showing backend loading state.
-    _splashTimer = Timer(const Duration(milliseconds: 2000), () {
-      if (mounted && _appState == 'splashAnimate') {
-        setState(() => _appState = 'backendLoading');
-      }
-    });
   }
 
   Future<void> _startBackend() async {
-    final success = await _backendService.start();
-    if (!mounted) return;
-    if (success) {
-      setState(() => _appState = 'backendReady');
-      // Brief pause so the splash can show "Connected" before crossfading.
-      await Future.delayed(const Duration(milliseconds: 600));
-      if (mounted) setState(() => _showSplash = false);
-    } else {
-      setState(() {
-        _appState = 'backendError';
-        _backendError = _backendService.startAttempted
-            ? 'Failed to start the API server.\nCheck that Python is installed and'
-                ' the api_server/ directory is present.'
-            : null;
-      });
-    }
-  }
+    // Start backend in the background — don't block the splash screen.
+    // The home screen will show a "Connecting..." state if the server
+    // isn't ready yet (handled by BackendService.health polling).
+    final backendFuture = _backendService.start();
 
-  Future<void> _retryBackend() async {
-    setState(() {
-      _appState = 'backendLoading';
-      _backendError = null;
-    });
-    await _startBackend();
+    // Show the splash animation for at least 2.5s, at most 4s.
+    await Future.any([
+      Future.delayed(const Duration(milliseconds: 2500)),
+      backendFuture,
+    ]);
+
+    // Always transition to home screen, regardless of backend status.
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (mounted) setState(() => _showSplash = false);
   }
 
   @override
   void dispose() {
-    _splashTimer?.cancel();
     _backendService.dispose();
     _localeProvider.dispose();
     widget.windowService.dispose();
@@ -192,11 +134,8 @@ class _VocalProAppState extends State<VocalProApp> {
               );
             },
             child: _showSplash
-                ? SplashScreen(
-                    key: const ValueKey('splash'),
-                    appState: _appState,
-                    errorMessage: _backendError,
-                    onRetry: _retryBackend,
+                ? const SplashScreen(
+                    key: ValueKey('splash'),
                   )
                 : HomeScreen(
                     key: const ValueKey('home'),

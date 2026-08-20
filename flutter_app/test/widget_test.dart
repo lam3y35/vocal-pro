@@ -41,10 +41,10 @@ void main() {
     }
 
     Future<void> cleanUp(WidgetTester tester) async {
-      // Dispose the widget tree, then pump 1s for any remaining timers
-      // (e.g. the 600ms Future.delayed inside _startBackend) to fire.
+      // Dispose the widget tree, then pump for 3s to fire any pending
+      // timers from _startBackend (2s Future.delayed).
       await tester.pumpWidget(const SizedBox());
-      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 3));
     }
 
     testWidgets('app renders without crashing', (WidgetTester tester) async {

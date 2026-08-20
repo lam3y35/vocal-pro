@@ -54,8 +54,6 @@ class TestUpload:
         assert long_name in resp.json()["filename"]
 
     def test_upload_files_persist(self, client, sample_wav):
-        import api_server.main as api_module
-
         with open(sample_wav, "rb") as f:
             resp = client.post("/api/upload", files={"file": ("persist.wav", f, "audio/wav")})
         path = resp.json()["file_path"]

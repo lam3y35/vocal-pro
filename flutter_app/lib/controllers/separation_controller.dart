@@ -18,10 +18,52 @@ class SeparationController extends ChangeNotifier {
   final ApiService api;
   // Callback fired when separation completes successfully (passes output path)
   void Function(String? outputPath)? onSeparationComplete;
+  // Callback fired when Ctrl+R is pressed — wired to start a new job via JobManager
+  VoidCallback? onStartNewJob;
 
   SeparationController({required this.api, AppLocalizations? l10n})
       : _statusText = l10n?.readyLog ?? 'Ready' {
     _wsSub = api.onProgress.listen(_onProgressEvent);
+  }
+
+  // ── Throttle: limit UI rebuilds during rapid progress updates ──
+  DateTime _lastProgressNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _progressNotifyInterval = Duration(milliseconds: 100);
+
+  /// Call notifyListeners() but throttle during progress updates to avoid
+  /// rebuilding the entire widget tree on every WebSocket message (~10/sec).
+  void _throttledNotify() {
+    final now = DateTime.now();
+    if (now.difference(_lastProgressNotify) >= _progressNotifyInterval) {
+      _lastProgressNotify = now;
+      notifyListeners();
+    }
+  }
+
+  // ── Server connectivity ──────────────────────────────────────────────────
+
+  bool _serverOffline = false;
+  /// Whether the last error was a server connection failure (for UI retry button).
+  bool get serverOffline => _serverOffline;
+
+  /// Check if the backend server is reachable by calling /api/health.
+  /// Returns `true` if the server is online, `false` otherwise.
+  /// Sets [_serverOffline] based on the result.
+  Future<bool> checkServerOnline() async {
+    try {
+      final resp = await api.health();
+      _serverOffline = resp['status'] != 'ok';
+      return !_serverOffline;
+    } catch (_) {
+      _serverOffline = true;
+      return false;
+    }
+  }
+
+  /// Reset the server offline flag (after a successful retry).
+  void markServerOnline() {
+    _serverOffline = false;
+    notifyListeners();
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────
@@ -35,6 +77,7 @@ class SeparationController extends ChangeNotifier {
     _wsSub?.cancel();
     _playbackTimer?.cancel();
     _workflowTimer?.cancel();
+    _pollTimer?.cancel();
     _urlController.dispose();
     _outputDirController.dispose();
     _audioPlayer.dispose();
@@ -69,6 +112,19 @@ class SeparationController extends ChangeNotifier {
 
   void removeFile(int index) {
     _files.removeAt(index);
+    // Clean up _fileStates for shifted indices
+    _fileStates.remove(index);
+    final shifted = <int, dynamic>{};
+    for (final entry in _fileStates.entries) {
+      if (entry.key > index) {
+        shifted[entry.key - 1] = entry.value;
+      } else {
+        shifted[entry.key] = entry.value;
+      }
+    }
+    _fileStates
+      ..clear()
+      ..addAll(shifted);
     if (_files.isEmpty) {
       _waveformData = null;
       _detectedBpm = null;
@@ -310,8 +366,9 @@ class SeparationController extends ChangeNotifier {
   final List<String> _logLines = [];
   List<String> get logLines => _logLines;
 
-  // Settings
-  String _modelName = 'htdemucs_ft';
+  // Default model — htdemucs offers the best CPU/GPU balance.
+  // On this system, htdemucs is faster than mdx_q (3.8x vs 5.2x realtime).
+  String _modelName = 'htdemucs';
   String get modelName => _modelName;
   set modelName(String v) { _modelName = v; notifyListeners(); }
   final Map<String, String> modelKeys = const {
@@ -329,7 +386,7 @@ class SeparationController extends ChangeNotifier {
   String get outputFormat => _outputFormat;
   set outputFormat(String v) { _outputFormat = v; notifyListeners(); }
 
-  String _videoOutputMode = 'both';
+  String _videoOutputMode = 'audio_only';
   String get videoOutputMode => _videoOutputMode;
   set videoOutputMode(String v) { _videoOutputMode = v; notifyListeners(); }
 
@@ -341,15 +398,15 @@ class SeparationController extends ChangeNotifier {
   bool get enableDenoise => _enableDenoise;
   set enableDenoise(bool v) { _enableDenoise = v; notifyListeners(); }
 
-  bool _enableMultiband = true;
+  bool _enableMultiband = false;
   bool get enableMultiband => _enableMultiband;
   set enableMultiband(bool v) { _enableMultiband = v; notifyListeners(); }
 
-  bool _enableProfile = true;
+  bool _enableProfile = false;
   bool get enableProfile => _enableProfile;
   set enableProfile(bool v) { _enableProfile = v; notifyListeners(); }
 
-  bool _adaptiveGate = true;
+  bool _adaptiveGate = false;
   bool get adaptiveGate => _adaptiveGate;
   set adaptiveGate(bool v) { _adaptiveGate = v; notifyListeners(); }
 
@@ -373,17 +430,47 @@ class SeparationController extends ChangeNotifier {
   bool get saveBg => _saveBg;
   set saveBg(bool v) { _saveBg = v; notifyListeners(); }
 
-  bool _enableSfxSep = true;
+  // SFX is always enabled and mixed into the output — no standalone toggle needed.
+  bool _enableSfxSep = false;
   bool get enableSfxSep => _enableSfxSep;
   set enableSfxSep(bool v) { _enableSfxSep = v; notifyListeners(); }
 
-  bool _genSamples = true;
+  bool _genSamples = false;
   bool get genSamples => _genSamples;
   set genSamples(bool v) { _genSamples = v; notifyListeners(); }
 
   bool _songMode = false;
   bool get songMode => _songMode;
   set songMode(bool v) { _songMode = v; notifyListeners(); }
+
+  // ── Advanced settings (stored locally; also saved to API config via dialog) ─
+  double _segment = 6.0;
+  double get segment => _segment;
+  set segment(double v) { _segment = v.clamp(2.0, 60.0); notifyListeners(); }
+
+  double _overlap = 2.0;
+  double get overlap => _overlap;
+  set overlap(double v) { _overlap = v.clamp(0.1, 8.0); notifyListeners(); }
+
+  int _shifts = 1;
+  int get shifts => _shifts;
+  set shifts(int v) { _shifts = v.clamp(1, 10); notifyListeners(); }
+
+  double _gateThresholdDb = -55.0;
+  double get gateThresholdDb => _gateThresholdDb;
+  set gateThresholdDb(double v) { _gateThresholdDb = v.clamp(-80.0, -10.0); notifyListeners(); }
+
+  double _gateFloorDb = -60.0;
+  double get gateFloorDb => _gateFloorDb;
+  set gateFloorDb(double v) { _gateFloorDb = v.clamp(-90.0, -20.0); notifyListeners(); }
+
+  double _denoiseStrength = 0.55;
+  double get denoiseStrength => _denoiseStrength;
+  set denoiseStrength(double v) { _denoiseStrength = v.clamp(0.0, 1.0); notifyListeners(); }
+
+  double _minVocalDuration = 0.08;
+  double get minVocalDuration => _minVocalDuration;
+  set minVocalDuration(double v) { _minVocalDuration = v.clamp(0.01, 1.0); notifyListeners(); }
 
   // ── Parallel workers ──────────────────────────────────────────────────
 
@@ -447,32 +534,188 @@ class SeparationController extends ChangeNotifier {
       ? DateTime.now().difference(_processingStartTime!).inMilliseconds / 1000.0
       : 0.0;
 
-  double get estimatedTotalSeconds => _progress > 0.01
-      ? elapsedSeconds / _progress
-      : 0.0;
+  /// Rolling-average ETA based on real progress updates.
+  ///
+  /// Collects (timestamp, progress) samples from real WebSocket/HTTP progress
+  /// updates and computes the average processing rate (seconds per unit of
+  /// progress) over the last few samples. This smooths out the jitter from
+  /// estimated progress updates and creep, giving a stable ETA that gracefully
+  /// converges to the true remaining time.
+  ///
+  /// Samples are stored in [_rateSamples] and reset on each new job.
+  final List<_RateSample> _rateSamples = [];
+  static const int _maxRateSamples = 5;
+
+  double get estimatedTotalSeconds {
+    final elapsed = elapsedSeconds;
+    if (elapsed < 5) return 0.0; // Too early — no meaningful estimate yet
+
+    // If we have enough real samples, use rolling average
+    if (_rateSamples.length >= 2) {
+      final first = _rateSamples.first;
+      final last = _rateSamples.last;
+      final dt = last.timestamp.difference(first.timestamp).inMilliseconds / 1000.0;
+      final dp = last.progress - first.progress;
+      if (dp > 0.01 && dt > 2) {
+        final rate = dt / dp; // seconds per unit of progress
+        final remaining = 1.0 - last.progress;
+        return elapsed + rate * remaining;
+      }
+    }
+
+    // Fallback: use the instantaneous rate but only if progress is meaningful
+    if (_progress > 0.05) {
+      return elapsed / _progress;
+    }
+    return 0.0;
+  }
 
   double get etaSeconds {
     final est = estimatedTotalSeconds;
     return est > 0 ? (est - elapsedSeconds).clamp(0, double.infinity) : 0.0;
   }
 
+  void _addRateSample(double progress) {
+    // Only record real updates (≥2% change from last sample) to avoid
+    // adding noise from creep or tiny estimated updates.
+    if (_rateSamples.isNotEmpty) {
+      final last = _rateSamples.last.progress;
+      if ((progress - last).abs() < 0.02) return;
+      // Ignore regressions (shouldn't happen, but handle it)
+      if (progress < last) return;
+    }
+    _rateSamples.add(_RateSample(DateTime.now(), progress));
+    if (_rateSamples.length > _maxRateSamples) {
+      _rateSamples.removeAt(0);
+    }
+  }
+
   // Internal tick timer to refresh elapsed/ETA display
   Timer? _workflowTimer;
+  // HTTP polling timer (fallback when WebSocket events are lost)
+  Timer? _pollTimer;
+  // Job ID for HTTP polling
+  String? _pollingJobId;
+  // Prevents overlapping poll requests
+  bool _isPollingInFlight = false;
 
   void _startWorkflowTimer() {
     _workflowTimer?.cancel();
-    _workflowTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _pollTimer?.cancel(); // Stale poll timer from a previous job
+    _isPollingInFlight = false;
+    _lastProgressTime = DateTime.now();
+    _lastRealProgress = 0.0;
+    _displayedProgress = 0.0;
+
+    _workflowTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (_disposed) {
         _workflowTimer?.cancel();
         return;
       }
-      notifyListeners(); // refresh elapsed/ETA display
+
+      // Smooth progress animation: between real updates, slowly creep up
+      // the displayed progress so the bar doesn't appear frozen.
+      // Uses a linear 2%/s creep: each 500ms tick adds 1% (0.01),
+      // so the bar visibly climbs even during long model loading phases.
+      // Never drops the bar (builds on current _displayedProgress),
+      // and never exceeds 50% of the gap to the next real update.
+      if (_isProcessing) {
+        final elapsed = DateTime.now().difference(_lastProgressTime).inMilliseconds / 1000.0;
+        if (elapsed > 2 && _lastRealProgress < 0.95) {
+          // After 2s without update, add 1% per tick (linear 2%/s).
+          // Builds on _displayedProgress so the bar can never drop.
+          final maxDisplay = _lastRealProgress + (1.0 - _lastRealProgress) * 0.5;
+          _displayedProgress = (_displayedProgress + 0.01).clamp(0.0, maxDisplay);
+          _progress = _displayedProgress;
+        }
+      }
+
+      _throttledNotify(); // refresh elapsed/ETA display and progress
     });
   }
 
   void _stopWorkflowTimer() {
     _workflowTimer?.cancel();
     _workflowTimer = null;
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollingJobId = null;
+  }
+
+  /// Start HTTP polling for a job as a fallback when WebSocket events
+  /// are lost or delayed. Polls every 2s and updates the controller state
+  /// directly from the API response.
+  void startPollingJob(String jobId) {
+    _pollingJobId = jobId;
+    _pollTimer?.cancel();
+    _isPollingInFlight = false;
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
+      if (_disposed || !_isProcessing || _pollingJobId == null || _isPollingInFlight) {
+        if (!_isProcessing) {
+          _pollTimer?.cancel();
+          _pollTimer = null;
+        }
+        return;
+      }
+      _isPollingInFlight = true;
+      try {
+        final resp = await api.getJob(_pollingJobId!);
+        final job = resp['job'] as Map<String, dynamic>?;
+        if (job == null) return;
+        final status = job['status'] as String?;
+
+        switch (status) {
+          case 'completed':
+            _isProcessing = false;
+            _lastRealProgress = 1.0;
+            _displayedProgress = 1.0;
+            _progress = 1.0;
+            _currentPhase = 'done';
+            _statusText = 'Complete';
+            _statusColor = AppColors.success;
+            _lastOutputPath = job['output_path'] as String?;
+            _stopWorkflowTimer();
+            onSeparationComplete?.call(_lastOutputPath);
+            break;
+          case 'error':
+            _isProcessing = false;
+            _currentPhase = 'error';
+            _statusText = 'Error';
+            _statusColor = AppColors.error;
+            _lastError = job['error'] as String?;
+            _stopWorkflowTimer();
+            break;
+          case 'cancelled':
+            _isProcessing = false;
+            _currentPhase = 'cancelled';
+            _statusText = 'Cancelled';
+            _statusColor = AppColors.warning;
+            _stopWorkflowTimer();
+            break;
+          default:
+            // Update progress from total_progress if available
+            final tp = (job['total_progress'] as num?)?.toDouble() ?? -1.0;
+            if (tp >= 0) {
+              _lastRealProgress = tp;
+              // Only update displayed progress AND reset creep timer when
+              // progress actually increased — prevents HTTP polling every 2s
+              // from resetting the creep timer with the same (stale) value.
+              if (tp > _displayedProgress) {
+                _displayedProgress = tp;
+                _lastProgressTime = DateTime.now();
+                _addRateSample(tp);
+              }
+              _progress = _displayedProgress;
+              final st = job['status_text'] as String? ?? '';
+              if (st.isNotEmpty) _detectPhase(st);
+            }
+        }
+        notifyListeners();
+      } catch (_) {
+      } finally {
+        _isPollingInFlight = false;
+      }
+    });
   }
 
   void _detectPhase(String message) {
@@ -504,13 +747,29 @@ class SeparationController extends ChangeNotifier {
 
   // ── Progress events (called from WebSocket stream) ─────────────────────
 
+  /// Last real progress value received from the backend (for smooth animation).
+  double _lastRealProgress = 0.0;
+  /// Time when the last real progress update was received.
+  DateTime _lastProgressTime = DateTime.now();
+  /// Displayed progress (may differ from real when animating).
+  double _displayedProgress = 0.0;
+
   void _onProgressEvent(ProgressEvent event) {
     if (_disposed) return;
     final fi = event.index; // may be null for legacy events
 
     switch (event.type) {
       case ProgressType.progress:
-        _progress = (event.percent ?? 0) / 100;
+        _lastRealProgress = (event.percent ?? 0) / 100;
+        // Record this real update for the rolling-average ETA
+        _addRateSample(_lastRealProgress);
+        // Don't drop displayed progress below where creep has pushed it,
+        // to avoid a jarring backward jump when a real update arrives.
+        if (_lastRealProgress > _displayedProgress) {
+          _displayedProgress = _lastRealProgress;
+        }
+        _lastProgressTime = DateTime.now();
+        _progress = _displayedProgress;
         _statusText = event.message ?? 'Processing...';
         _detectPhase(event.message ?? '');
         // Track per-file progress if indexed
@@ -528,6 +787,8 @@ class SeparationController extends ChangeNotifier {
         break;
       case ProgressType.done:
         _isProcessing = false;
+        _lastRealProgress = 1.0;
+        _displayedProgress = 1.0;
         _progress = 1.0;
         _currentPhase = 'done';
         _statusText = 'Complete';
@@ -550,6 +811,7 @@ class SeparationController extends ChangeNotifier {
         _lastError = event.message;
         _logLines.add('\u274C ${event.message}');
         if (fi != null) _fileStates[fi] = 'error';
+        _progress = _displayedProgress; // stay where the user last saw it
         _stopWorkflowTimer();
         break;
       case ProgressType.cancelled:
@@ -567,8 +829,31 @@ class SeparationController extends ChangeNotifier {
         break;
       case ProgressType.pong:
         break;
+      case ProgressType.reconnected:
+        // Server restarted — if we were processing, the job was lost.
+        if (_isProcessing) {
+          _isProcessing = false;
+          _currentPhase = 'error';
+          _statusText = 'Server disconnected — check if the backend is running';
+          _statusColor = AppColors.error;
+          _lastError = 'The AI server was restarted. Your previous job was lost. Please try again.';
+          _logLines.add('\u26A0\uFE0F Server reconnected — previous job lost');
+          _stopWorkflowTimer();
+        }
+        break;
     }
-    notifyListeners();
+    // Throttle: progress events flood in at ~10/sec, but done/error/cancelled
+    // must always notify immediately. Terminal events and phase changes get
+    // instant notification; progress updates are throttled to 100ms.
+    final isTerminal = event.type == ProgressType.done ||
+        event.type == ProgressType.error ||
+        event.type == ProgressType.cancelled ||
+        event.type == ProgressType.reconnected;
+    if (isTerminal) {
+      notifyListeners();
+    } else {
+      _throttledNotify();
+    }
   }
 
   /// Override status text with a localized string.
@@ -580,26 +865,51 @@ class SeparationController extends ChangeNotifier {
 
   // ── Actions ────────────────────────────────────────────────────────────
 
-  Future<void> startSeparation() async {
+  /// Prepare controller for a job launched via JobManager.
+  /// Sets processing state and starts the workflow timer.
+  void prepareForJob() {
     if (_files.isEmpty || _isProcessing) return;
     _isProcessing = true;
     _progress = 0;
+    _resetRateSamples();
     _currentPhase = 'initializing';
     _currentFileIndex = -1;
     _currentFileTotal = _files.length;
     _currentFilename = null;
+    _lastError = null;
     _processingStartTime = DateTime.now();
     _fileStates.clear();
-    // Initialise all files as waiting
     for (int i = 0; i < _files.length; i++) {
-      _fileStates[i] = null; // waiting
+      _fileStates[i] = null;
     }
-    _statusText = 'Initializing...';
+    _statusText = 'Starting job...';
     _statusColor = AppColors.warning;
     _logLines.clear();
     _startWorkflowTimer();
     notifyListeners();
+  }
 
+  void _resetRateSamples() {
+    _rateSamples.clear();
+  }
+
+  /// Report a job error (API failure, server not running, etc.).
+  void onJobError(String errorMessage) {
+    if (_disposed) return;
+    _isProcessing = false;
+    _currentPhase = 'error';
+    _statusText = errorMessage;
+    _statusColor = AppColors.error;
+    _lastError = errorMessage;
+    _logLines.add('\u274C $errorMessage');
+    _stopWorkflowTimer();
+    notifyListeners();
+  }
+
+  /// Legacy direct-separation method (no longer wired in UI).
+  Future<void> startSeparation() async {
+    if (_files.isEmpty || _isProcessing) return;
+    prepareForJob();
     try {
       await api.startSeparation(
         filePaths: _files.map((f) => f.path).toList(),
@@ -623,18 +933,20 @@ class SeparationController extends ChangeNotifier {
       );
     } catch (e) {
       if (_disposed) return;
-      _isProcessing = false;
-      _currentPhase = 'error';
-      _statusText = 'Error';
-      _statusColor = AppColors.error;
-      _logLines.add('\u274C $e');
-      _stopWorkflowTimer();
-      notifyListeners();
+      onJobError('$e');
     }
   }
 
   Future<void> cancel() async {
     await api.cancelSeparation();
+    if (_isProcessing) {
+      _isProcessing = false;
+      _currentPhase = 'cancelled';
+      _statusText = 'Cancelled';
+      _statusColor = AppColors.warning;
+      _stopWorkflowTimer();
+      notifyListeners();
+    }
   }
 
   void setLogLines(List<String> lines) {
@@ -657,13 +969,15 @@ class SeparationController extends ChangeNotifier {
 
   void showAdvancedDialog(BuildContext context) {
     final l10n = AppLocalizations.instance(context);
+    // Conservative defaults that work on CPU; backend auto-detects
+    // hardware and further optimizes if needed.
     Map<String, double> tempVals = {
-      'segment': 24.0,
+      'segment': 6.0,
       'overlap': 2.0,
-      'shifts': 5.0,
+      'shifts': 1,
       'gate_threshold_db': -55.0,
       'gate_floor_db': -60.0,
-      'denoise_strength': 0.65,
+      'denoise_strength': 0.55,
     };
 
     showDialog(
@@ -758,7 +1072,7 @@ class SeparationController extends ChangeNotifier {
       if (event.logicalKey == LogicalKeyboardKey.keyO && ctrl) {
         browseFiles();
       } else if (event.logicalKey == LogicalKeyboardKey.keyR && ctrl) {
-        startSeparation();
+        onStartNewJob?.call();
       } else if (event.logicalKey == LogicalKeyboardKey.escape) {
         if (_isProcessing) cancel();
       }
@@ -771,4 +1085,11 @@ class _WorkflowPhase {
   final String id;
   final String label;
   const _WorkflowPhase(this.id, this.label);
+}
+
+/// A (timestamp, progress) pair used for rolling-average ETA calculation.
+class _RateSample {
+  final DateTime timestamp;
+  final double progress;
+  const _RateSample(this.timestamp, this.progress);
 }

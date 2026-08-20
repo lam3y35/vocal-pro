@@ -19,9 +19,12 @@ class SongModeCard extends StatelessWidget {
         return GlassCard(
           highlighted: active,
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            InkWell(
-              onTap: () => ctrl.songMode = !active,
-              borderRadius: BorderRadius.circular(8),
+            Tooltip(
+              message: 'One-tap preset: trim silence, enable denoise/gate, audio-only output \u2014 ideal for songs',
+              waitDuration: const Duration(milliseconds: 300),
+              child: InkWell(
+                onTap: () => ctrl.songMode = !active,
+                borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(children: [
@@ -67,6 +70,7 @@ class SongModeCard extends StatelessWidget {
                   ),
                 ]),
               ),
+            ),
             ),
             if (active) ...[
               const SizedBox(height: 12),

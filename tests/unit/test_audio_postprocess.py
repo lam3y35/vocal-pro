@@ -308,7 +308,7 @@ class TestAudioPostProcess:
     def test_postprocess_noop(self, stereo_signal):
         from code.audio_postprocess import postprocess_vocals
         a, sr = stereo_signal
-        assert np.allclose(postprocess_vocals(a, sr=sr, enable_gate=False, enable_denoise=False, trim=False), a)
+        assert np.allclose(postprocess_vocals(a, sr=sr, enable_gate=False, enable_denoise=False, trim=False, enable_hf_restore=False, enable_loudness_normalize=False), a)
 
     def test_postprocess_silence(self, silent_signal):
         from code.audio_postprocess import postprocess_vocals
@@ -482,6 +482,142 @@ class TestAudioPostProcess:
         a, sr = stereo_signal
         h, p = separate_sfx(a, sr=sr, margin_db=10.0, kernel_size=41)
         assert h.shape == a.shape and p.shape == a.shape
+
+    # ── High-Frequency Restoration ────────────────────────────────────
+
+    def test_restore_hf_mono(self, mono_signal):
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = mono_signal
+        r = restore_high_frequencies(a, sr=sr)
+        assert r.shape == a.shape and np.all(np.isfinite(r))
+
+    def test_restore_hf_stereo(self, stereo_signal):
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = stereo_signal
+        r = restore_high_frequencies(a, sr=sr)
+        assert r.shape == a.shape and np.all(np.isfinite(r))
+
+    def test_restore_hf_boost_zero(self, mono_signal):
+        """boost_db=0 must return a copy with no change."""
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = mono_signal
+        r = restore_high_frequencies(a, sr=sr, boost_db=0)
+        assert r.shape == a.shape
+        assert np.allclose(r, a)  # no change expected
+
+    def test_restore_hf_boost_negative(self, mono_signal):
+        """boost_db < 0 must return a copy with no change."""
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = mono_signal
+        r = restore_high_frequencies(a, sr=sr, boost_db=-3.0)
+        assert r.shape == a.shape
+        assert np.allclose(r, a)
+
+    def test_restore_hf_silence(self, silent_signal):
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = silent_signal
+        assert np.all(np.isfinite(restore_high_frequencies(a, sr=sr)))
+
+    def test_restore_hf_zeros(self):
+        from code.audio_postprocess import restore_high_frequencies
+        a = np.zeros((2, 44100), dtype=np.float32)
+        r = restore_high_frequencies(a, sr=44100)
+        assert np.allclose(r, 0) and r.shape == (2, 44100)
+
+    def test_restore_hf_mono_1d(self):
+        """1D input must produce 1D output."""
+        from code.audio_postprocess import restore_high_frequencies
+        a = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 44100, 0)).astype(np.float32) * 0.5
+        r = restore_high_frequencies(a, sr=44100)
+        assert r.ndim == 1 and len(r) == len(a)
+
+    def test_restore_hf_increases_high_energy(self, mono_signal):
+        """HF boost should increase RMS in high-freq region."""
+        from code.audio_postprocess import restore_high_frequencies
+        import librosa
+        a, sr = mono_signal
+        r = restore_high_frequencies(a, sr=sr, boost_db=6.0, crossover_hz=1000.0)
+        # Compute high-frequency energy (> 1000 Hz) via STFT
+        S_orig = np.abs(librosa.stft(a, n_fft=2048))
+        S_rest = np.abs(librosa.stft(r, n_fft=2048))
+        # Index for 1000 Hz at sr=44100, n_fft=2048 -> bin ~23
+        hi_bin = int(1000 * 2048 / sr)
+        orig_hi_energy = np.sum(S_orig[hi_bin:, :] ** 2)
+        rest_hi_energy = np.sum(S_rest[hi_bin:, :] ** 2)
+        assert rest_hi_energy > orig_hi_energy
+
+    def test_restore_hf_custom_crossover(self, mono_signal):
+        from code.audio_postprocess import restore_high_frequencies
+        a, sr = mono_signal
+        r = restore_high_frequencies(a, sr=sr, boost_db=3.0, crossover_hz=4000.0)
+        assert r.shape == a.shape and np.all(np.isfinite(r))
+
+    # ── Loudness Normalization ────────────────────────────────────────
+
+    def test_normalize_loudness_mono(self, mono_signal):
+        from code.audio_postprocess import normalize_loudness
+        a, sr = mono_signal
+        r = normalize_loudness(a)
+        assert r.shape == a.shape and np.all(np.isfinite(r))
+
+    def test_normalize_loudness_stereo(self, stereo_signal):
+        from code.audio_postprocess import normalize_loudness
+        a, sr = stereo_signal
+        r = normalize_loudness(a)
+        assert r.shape == a.shape and np.all(np.isfinite(r))
+
+    def test_normalize_loudness_ref_matches(self, mono_signal):
+        """With ref_audio, output RMS should approximately match ref RMS.
+
+        Uses a moderate reduction (0.6x) so the required gain of ~1.67 stays
+        within the 2.0 cap and the output can reach close to reference level.
+        """
+        from code.audio_postprocess import normalize_loudness
+        a, sr = mono_signal
+        # Scale input down to simulate moderate processing loss (gain ~1.67 < 2.0 cap)
+        quiet = a * 0.6
+        r = normalize_loudness(quiet, ref_audio=a)
+        rms_orig = np.sqrt(np.mean(a ** 2))
+        rms_out = np.sqrt(np.mean(r ** 2))
+        # Should be within 10% of original (some tolerance for clipping guard)
+        assert abs(rms_out - rms_orig) / max(rms_orig, 1e-12) < 0.15
+
+    def test_normalize_loudness_target_rms(self, mono_signal):
+        from code.audio_postprocess import normalize_loudness
+        a, sr = mono_signal
+        target = 0.05
+        r = normalize_loudness(a * 0.5, target_rms=target)
+        rms_out = np.sqrt(np.mean(r ** 2))
+        assert abs(rms_out - target) / target < 0.15
+
+    def test_normalize_loudness_silent(self):
+        from code.audio_postprocess import normalize_loudness
+        a = np.zeros((2, 44100), dtype=np.float32)
+        r = normalize_loudness(a)
+        assert np.allclose(r, 0) and r.shape == (2, 44100)
+
+    def test_normalize_loudness_no_clip(self):
+        """Already-loud signal should not clip after normalization."""
+        from code.audio_postprocess import normalize_loudness
+        a = np.ones(44100, dtype=np.float32) * 0.99
+        r = normalize_loudness(a)
+        assert np.max(np.abs(r)) <= 1.0
+
+    def test_normalize_loudness_gain_capped(self, mono_signal):
+        """Gain should not exceed 2.0 (6 dB) for very quiet inputs."""
+        from code.audio_postprocess import normalize_loudness
+        a, sr = mono_signal
+        very_quiet = a * 1e-6
+        r = normalize_loudness(very_quiet)
+        rms_ratio = np.sqrt(np.mean(r ** 2)) / max(np.sqrt(np.mean(very_quiet ** 2)), 1e-12)
+        assert rms_ratio <= 2.1  # close to cap of 2.0
+
+    def test_normalize_loudness_mono_1d(self):
+        """1D input must produce 1D output."""
+        from code.audio_postprocess import normalize_loudness
+        a = np.sin(2 * np.pi * 440 * np.linspace(0, 1, 44100, 0)).astype(np.float32) * 0.5
+        r = normalize_loudness(a)
+        assert r.ndim == 1 and len(r) == len(a)
 
 
 # ════════════════════════════════════════════════════════════════════════

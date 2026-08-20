@@ -43,11 +43,11 @@ class TestErrorHandling:
         assert resp.status_code in (422,)
 
     def test_empty_request_body(self, client):
-        resp = client.post("/api/separate", data="", headers={"Content-Type": "application/json"})
+        resp = client.post("/api/separate", content="", headers={"Content-Type": "application/json"})
         assert resp.status_code in (400, 422)
 
     def test_malformed_json(self, client):
-        resp = client.post("/api/separate", data="not json {{{", headers={"Content-Type": "application/json"})
+        resp = client.post("/api/separate", content="not json {{", headers={"Content-Type": "application/json"})
         assert resp.status_code in (400, 422)
 
     def test_websocket_rejects_http(self, client):

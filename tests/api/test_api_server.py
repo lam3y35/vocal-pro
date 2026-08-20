@@ -12,11 +12,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
-import threading
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -75,17 +73,16 @@ def app_mod():
 
 @pytest.fixture(autouse=True)
 def reset_worker_state(api_client, app_mod):
-    """Cancel any running worker before each test that touches separation."""
-    # This fixture is called automatically; tests in TestSeparation and
-    # TestErrorHandling that trigger separation will cancel the worker first.
+    """Cancel any running job and clear state before each test."""
     yield
-    # After the test, cancel any running worker
+    # After the test, cancel all active jobs
     try:
         api_client.post("/api/cancel")
     except Exception:
         pass
-    app_mod._active_worker = None
-    app_mod._cancel_event.clear()
+    # Clear all job state
+    with app_mod._jobs_lock:
+        app_mod._jobs.clear()
     # Clean WebSocket connections
     with app_mod._progress_lock:
         app_mod._progress_connections.clear()
@@ -274,7 +271,7 @@ class TestConfig:
         assert resp.status_code in (405, 307)
 
     def test_config_rejects_bad_json(self, api_client):
-        resp = api_client.post("/api/config", data="not-json", headers={"Content-Type": "application/json"})
+        resp = api_client.post("/api/config", content="not-json", headers={"Content-Type": "application/json"})
         assert resp.status_code == 422
 
     def test_get_config_has_ffmpeg_path(self, api_client):
@@ -457,7 +454,7 @@ class TestDownloadURL:
         assert resp.status_code == 422
 
     def test_download_rejects_non_dict_body(self, api_client):
-        resp = api_client.post("/api/download", data="bad", headers={"Content-Type": "application/json"})
+        resp = api_client.post("/api/download", content="bad", headers={"Content-Type": "application/json"})
         assert resp.status_code == 422
 
     def test_download_rejects_post_without_body(self, api_client):
@@ -512,7 +509,7 @@ class TestSeparation:
     def test_cancel_separation_returns_ok(self, api_client):
         resp = api_client.post("/api/cancel")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "cancelling"
+        assert resp.json()["status"] in ("cancelling", "no_active_job")
 
     def test_get_status_returns_200(self, api_client):
         resp = api_client.get("/api/status")
@@ -522,17 +519,18 @@ class TestSeparation:
         resp = api_client.get("/api/status")
         assert "is_running" in resp.json()
 
-    def test_get_status_has_is_cancelled(self, api_client):
+    def test_get_status_has_running_jobs(self, api_client):
         resp = api_client.get("/api/status")
-        assert "is_cancelled" in resp.json()
+        assert "running_jobs" in resp.json()
 
     def test_get_status_response_structure(self, api_client, app_mod):
-        app_mod._active_worker = None
-        app_mod._cancel_event.clear()
+        # Ensure no jobs are running
+        with app_mod._jobs_lock:
+            app_mod._jobs.clear()
         resp = api_client.get("/api/status")
         data = resp.json()
         assert isinstance(data["is_running"], bool)
-        assert isinstance(data["is_cancelled"], bool)
+        assert isinstance(data["running_jobs"], list)
 
     @pytest.mark.parametrize("option", [
         ("enable_vocal_gate", True),
@@ -596,24 +594,18 @@ class TestSeparation:
             assert resp.json()["file_count"] >= 1
             assert "output_dir" in resp.json()
 
-    def test_separation_rejects_if_busy(self, api_client, temp_wav):
-        """If a worker is busy, second request returns 409."""
-        import api_server.main as app_mod
-        from unittest.mock import MagicMock
+    def test_separation_with_concurrent_jobs(self, api_client, temp_wav):
+        """Multiple separation requests can be started concurrently (multi-job)."""
+        resp1 = api_client.post("/api/separate", json={"file_paths": [temp_wav]})
+        assert resp1.status_code == 200
+        job1_id = resp1.json().get("job_id")
+        assert job1_id is not None
 
-        # Mock a busy worker that stays alive
-        busy_thread = MagicMock()
-        busy_thread.is_alive.return_value = True
-        busy_thread.name = "MockWorker"
-
-        original_worker = app_mod._active_worker
-        app_mod._active_worker = busy_thread
-        try:
-            resp = api_client.post("/api/separate", json={"file_paths": [temp_wav]})
-            assert resp.status_code == 409
-            assert "already in progress" in resp.text.lower()
-        finally:
-            app_mod._active_worker = original_worker
+        resp2 = api_client.post("/api/separate", json={"file_paths": [temp_wav]})
+        assert resp2.status_code == 200
+        job2_id = resp2.json().get("job_id")
+        assert job2_id is not None
+        assert job1_id != job2_id  # Different job IDs
 
     def test_cancel_twice_ok(self, api_client):
         resp1 = api_client.post("/api/cancel")
@@ -777,11 +769,11 @@ class TestErrorHandling:
         assert resp.status_code in (404, 405, 307)
 
     def test_malformed_json_returns_422(self, api_client):
-        resp = api_client.post("/api/config", data="not json", headers={"Content-Type": "application/json"})
+        resp = api_client.post("/api/config", content="not json", headers={"Content-Type": "application/json"})
         assert resp.status_code == 422
 
     def test_missing_content_type_handled(self, api_client):
-        resp = api_client.post("/api/config", data="hello")
+        resp = api_client.post("/api/config", content="hello")
         assert resp.status_code in (400, 422)
 
     @pytest.mark.parametrize("method", ["delete", "put", "patch"])
@@ -794,7 +786,7 @@ class TestErrorHandling:
         assert resp.status_code in (400, 422)
 
     def test_non_json_post_to_separate(self, api_client):
-        resp = api_client.post("/api/separate", data="plain", headers={"Content-Type": "text/plain"})
+        resp = api_client.post("/api/separate", content="plain", headers={"Content-Type": "text/plain"})
         assert resp.status_code in (400, 422)
 
     def test_missing_required_fields(self, api_client):
@@ -813,7 +805,7 @@ class TestErrorHandling:
         assert api_client.get("/api/health").status_code == 200
 
     def test_bad_config_then_health(self, api_client):
-        resp = api_client.post("/api/config", data="bad")
+        resp = api_client.post("/api/config", content="bad")
         assert resp.status_code in (400, 422)
         assert api_client.get("/api/health").status_code == 200
 
@@ -992,7 +984,7 @@ class TestErrorRecovery:
     def test_recover_after_many_errors(self, api_client):
         error_calls = [
             lambda: api_client.get("/api/nonexistent"),
-            lambda: api_client.post("/api/config", data="bad", headers={"Content-Type": "application/json"}),
+            lambda: api_client.post("/api/config", content="bad", headers={"Content-Type": "application/json"}),
             lambda: api_client.post("/api/upload", files={"file": ("bad.exe", b"x", "application/x-msdownload")}),
             lambda: api_client.post("/api/download", json={"url": ""}),  # noqa
         ]
@@ -1018,7 +1010,7 @@ class TestErrorRecovery:
     def test_server_rejects_invalid_json_globally(self, api_client):
         endpoints = ["/api/config", "/api/separate", "/api/download"]
         for ep in endpoints:
-            resp = api_client.post(ep, data="{{bad", headers={"Content-Type": "application/json"})
+            resp = api_client.post(ep, content="{{bad", headers={"Content-Type": "application/json"})
             assert resp.status_code in (400, 422), f"Failed on {ep}"
 
 

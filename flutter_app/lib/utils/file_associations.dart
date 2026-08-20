@@ -9,12 +9,14 @@ import 'dart:io';
 ///
 /// Runs once per app update — guarded by the same marker file pattern used
 /// in [createDesktopShortcut].
-void registerFileAssociations() {
+///
+/// Now async — file I/O no longer blocks the UI thread.
+Future<void> registerFileAssociations() async {
   final appData = Platform.environment['APPDATA'];
   if (appData == null) return;
 
   final marker = File('$appData/VocalPro/.associations_registered');
-  if (marker.existsSync()) return;
+  if (await marker.exists()) return;
 
   final exePath = Platform.resolvedExecutable;
 
@@ -55,7 +57,7 @@ New-ItemProperty -Path "HKCU:\\Software\\Classes\\$ext" -Name "(Default)" -Value
 ''');
     }
 
-    Process.run(
+    await Process.run(
       'powershell',
       [
         '-NoProfile',
@@ -67,7 +69,7 @@ New-ItemProperty -Path "HKCU:\\Software\\Classes\\$ext" -Name "(Default)" -Value
       runInShell: true,
     );
 
-    marker.writeAsStringSync('1');
+    await marker.writeAsString('1');
   } catch (_) {
     // Non-critical — fail silently.
   }

@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,15 +84,14 @@ def mock_soundfile():
 def mock_separation_engine():
     """Mock the entire code.separation_engine module to prevent heavy imports
     (torch, torchaudio, demucs, librosa) that crash on broken torch installs.
-    
+
     SeparationEngine is imported inside _worker() via:
         from code.separation_engine import SeparationEngine
-    
+
     By inserting a fake module into sys.modules, we avoid ever importing the
     real module, which would trigger torch/torchaudio/demucs at module level.
     """
     import types as _types
-    import numpy as np
 
     mock_mod = _types.ModuleType("code.separation_engine")
     mock_mod.__file__ = "<mocked>"
@@ -122,17 +118,10 @@ def mock_separation_engine():
 
 
 @pytest.fixture
-def mock_cancel_event():
-    """Mock cancel event (not set)."""
-    with patch("api_server.main._cancel_event") as mock:
-        mock.is_set.return_value = False
-        yield mock
-
-
-@pytest.fixture
 def client(mock_torch, mock_librosa, mock_soundfile, mock_separation_engine, tmp_path):
     """FastAPI TestClient with all mocks applied and isolated temp directories."""
-    from api_server.main import app, UPLOAD_DIR, OUTPUT_DIR, _progress_connections
+    from code.config import DEFAULT_CONFIG
+    from api_server.main import app, _progress_connections
 
     # Override globals with temp paths
     import api_server.main as api_module
@@ -149,10 +138,44 @@ def client(mock_torch, mock_librosa, mock_soundfile, mock_separation_engine, tmp
     # Clear progress connections
     _progress_connections.clear()
 
+    # Wire config to a temp file so tests are isolated from real user config
+    import api_server.main as api_main_mod
+    import json
+    cfg_path = tmp_path / "config.json"
+    with open(str(cfg_path), "w") as f:
+        json.dump(dict(DEFAULT_CONFIG), f)
+
+    # Replace load_config/save_config in the api_server.main module to use the temp file
+    _orig_load = api_main_mod.load_config
+    _orig_save = api_main_mod.save_config
+
+    def _temp_load():
+        if cfg_path.exists():
+            with open(str(cfg_path)) as f:
+                user = json.load(f)
+        else:
+            user = {}
+        from code.config import DEFAULT_CONFIG as _dc
+        from code.config import _validate
+        cfg = dict(_dc)
+        cfg.update(user)
+        return _validate(cfg)
+
+    def _temp_save(cfg):
+        from code.config import _validate
+        validated = _validate(cfg)
+        with open(str(cfg_path), "w") as f:
+            json.dump(validated, f, indent=2, default=str)
+
+    api_main_mod.load_config = _temp_load
+    api_main_mod.save_config = _temp_save
+
     with TestClient(app) as c:
         yield c
 
     # Restore
+    api_main_mod.load_config = _orig_load
+    api_main_mod.save_config = _orig_save
     api_module.UPLOAD_DIR = _orig_upload
     api_module.OUTPUT_DIR = _orig_output
 

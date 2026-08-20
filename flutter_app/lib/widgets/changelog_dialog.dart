@@ -9,22 +9,24 @@ class ChangelogDialog extends StatelessWidget {
 
   const ChangelogDialog({super.key, required this.onDismiss});
 
-  static void show(BuildContext context, {VoidCallback? onDismiss}) {
-    if (!shouldShowChangelog()) {
+  static Future<void> show(BuildContext context, {VoidCallback? onDismiss}) async {
+    if (!await shouldShowChangelog()) {
       onDismiss?.call();
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => ChangelogDialog(
-        onDismiss: () {
-          markChangelogSeen();
-          onDismiss?.call();
-        },
-      ),
-    );
+    if (context.mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ChangelogDialog(
+          onDismiss: () {
+            markChangelogSeen();
+            onDismiss?.call();
+          },
+        ),
+      );
+    }
   }
 
   @override
@@ -130,9 +132,9 @@ class ChangelogDialog extends StatelessWidget {
               child: AccentButton(
                 label: 'Got it!',
                 icon: Icons.check_rounded,
-                onPressed: () {
+                onPressed: () async {
                   Navigator.pop(context);
-                  markChangelogSeen();
+                  await markChangelogSeen();
                   onDismiss();
                 },
               ),

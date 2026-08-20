@@ -93,7 +93,7 @@ class TestConfig:
         assert resp.json()["status"] == "ok"
 
     def test_update_config_invalid_json(self, client):
-        resp = client.post("/api/config", data="not json", headers={"Content-Type": "application/json"})
+        resp = client.post("/api/config", content="not json", headers={"Content-Type": "application/json"})
         assert resp.status_code in (422, 400)
 
 

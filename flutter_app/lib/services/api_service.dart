@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 class ApiService {
   final String baseUrl;
   final String wsUrl;
+  final http.Client _client = http.Client();
 
   ApiService({
     this.baseUrl = 'http://127.0.0.1:8000',
@@ -17,24 +18,24 @@ class ApiService {
   // ── Health ────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> health() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/health'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/health'));
     return jsonDecode(resp.body);
   }
 
   // ── Config ────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getConfig() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/config'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/config'));
     return jsonDecode(resp.body);
   }
 
   Future<Map<String, dynamic>> getDefaults() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/config/defaults'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/config/defaults'));
     return jsonDecode(resp.body);
   }
 
   Future<void> updateConfig(String key, dynamic value) async {
-    await http.post(
+    await _client.post(
       Uri.parse('$baseUrl/api/config'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode([{'key': key, 'value': value}]),
@@ -42,7 +43,7 @@ class ApiService {
   }
 
   Future<void> updateConfigs(List<Map<String, dynamic>> updates) async {
-    await http.post(
+    await _client.post(
       Uri.parse('$baseUrl/api/config'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(updates),
@@ -52,7 +53,7 @@ class ApiService {
   // ── Models ────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getModels() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/models'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/models'));
     return jsonDecode(resp.body);
   }
 
@@ -62,7 +63,7 @@ class ApiService {
     final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/api/upload'));
     final file = await http.MultipartFile.fromPath('file', filePath);
     request.files.add(file);
-    final streamed = await request.send();
+    final streamed = await _client.send(request);
     final resp = await http.Response.fromStream(streamed);
     return jsonDecode(resp.body);
   }
@@ -70,7 +71,7 @@ class ApiService {
   // ── Download URL ──────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> downloadUrl(String url) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/download'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'url': url}),
@@ -81,7 +82,7 @@ class ApiService {
   // ── Audio Analysis (BPM, key, waveform) ───────────────────────────
 
   Future<Map<String, dynamic>> analyzeAudio(String filePath) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/analyze'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'file_path': filePath}),
@@ -118,7 +119,7 @@ class ApiService {
     String videoOutputMode = 'both',
     int parallelWorkers = 1,
   }) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/separate'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -154,51 +155,51 @@ class ApiService {
 
   /// List all jobs from the backend.
   Future<List<Map<String, dynamic>>> listJobs() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/jobs'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/jobs'));
     final data = jsonDecode(resp.body);
     return (data['jobs'] as List<dynamic>?)?.cast<Map<String, dynamic>>() ?? [];
   }
 
   /// Get details of a specific job.
   Future<Map<String, dynamic>> getJob(String jobId) async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/jobs/$jobId'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/jobs/$jobId'));
     final data = jsonDecode(resp.body);
     return data['job'] as Map<String, dynamic>? ?? {};
   }
 
   /// Cancel a specific job.
   Future<void> cancelJob(String jobId) async {
-    await http.post(Uri.parse('$baseUrl/api/jobs/$jobId/cancel'));
+    await _client.post(Uri.parse('$baseUrl/api/jobs/$jobId/cancel'));
   }
 
   /// Cancel the most recent running job (backward compat).
   Future<void> cancelSeparation() async {
-    await http.post(Uri.parse('$baseUrl/api/cancel'));
+    await _client.post(Uri.parse('$baseUrl/api/cancel'));
   }
 
   Future<Map<String, dynamic>> getStatus() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/status'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/status'));
     return jsonDecode(resp.body);
   }
 
   // ── History ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getHistory() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/history'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/history'));
     return jsonDecode(resp.body);
   }
 
   Future<Map<String, dynamic>> getDownloadHistory() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/download_history'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/download_history'));
     return jsonDecode(resp.body);
   }
 
   Future<void> clearSepHistory() async {
-    await http.delete(Uri.parse('$baseUrl/api/history'));
+    await _client.delete(Uri.parse('$baseUrl/api/history'));
   }
 
   Future<void> clearDownloadHistory() async {
-    await http.delete(Uri.parse('$baseUrl/api/download_history'));
+    await _client.delete(Uri.parse('$baseUrl/api/download_history'));
   }
 
   // ── Rerun ─────────────────────────────────────────────────────────
@@ -244,12 +245,12 @@ class ApiService {
   // ── Outputs ───────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>> getOutputs() async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/outputs'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/outputs'));
     return jsonDecode(resp.body);
   }
 
   Future<Map<String, dynamic>> getStems(String folderName) async {
-    final resp = await http.get(Uri.parse('$baseUrl/api/outputs/$folderName/stems'));
+    final resp = await _client.get(Uri.parse('$baseUrl/api/outputs/$folderName/stems'));
     return jsonDecode(resp.body);
   }
 
@@ -264,7 +265,7 @@ class ApiService {
     Map<String, double> volumes = const {},
     double masterVolume = 1.0,
   }) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/stems/preview'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -282,7 +283,7 @@ class ApiService {
     double masterVolume = 1.0,
     String outputFormat = 'wav',
   }) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/stems/export'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -301,7 +302,7 @@ class ApiService {
     double masterVolume = 1.0,
     String outputFormat = 'wav',
   }) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/stems/export_separate'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
@@ -315,7 +316,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> stemToMidi(String filePath) async {
-    final resp = await http.post(
+    final resp = await _client.post(
       Uri.parse('$baseUrl/api/stems/midi'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'file_path': filePath}),
@@ -386,6 +387,7 @@ class ApiService {
     _hasConnectedOnce = false;
     disconnectWebSocket();
     _eventController.close();
+    _client.close();
   }
 }
 

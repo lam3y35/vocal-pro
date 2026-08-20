@@ -16,7 +16,7 @@ class _ChangelogEntry {
 /// Changelog history — most recent first.
 const _changelog = [
   _ChangelogEntry(
-    version: '1.0.0',
+    version: '2.5.0',
     date: '2026-06-28',
     items: [
       'File associations — double-click audio/video files to open in VocalPro',
@@ -33,21 +33,23 @@ const _changelog = [
 ];
 
 /// Current app version.
-const String currentVersion = '1.0.0';
+const String currentVersion = '2.5.0';
 
 /// Check if this is a first launch (no version marker exists) or an upgrade
 /// (stored version is older than [currentVersion]).
 ///
 /// Returns `true` if the changelog dialog should be shown.
-bool shouldShowChangelog() {
+///
+/// Now async — file I/O no longer blocks the UI thread.
+Future<bool> shouldShowChangelog() async {
   final appData = _appDataDir();
   if (appData == null) return false;
 
   final marker = File('$appData/VocalPro/.version');
-  if (!marker.existsSync()) return true;
+  if (!await marker.exists()) return true;
 
   try {
-    final stored = marker.readAsStringSync().trim();
+    final stored = (await marker.readAsString()).trim();
     return stored != currentVersion;
   } catch (_) {
     return true;
@@ -55,14 +57,16 @@ bool shouldShowChangelog() {
 }
 
 /// Record that the user has seen the current version's changelog.
-void markChangelogSeen() {
+///
+/// Now async — file I/O no longer blocks the UI thread.
+Future<void> markChangelogSeen() async {
   final appData = _appDataDir();
   if (appData == null) return;
 
   try {
     final dir = Directory('$appData/VocalPro');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    File('$appData/VocalPro/.version').writeAsStringSync(currentVersion);
+    if (!await dir.exists()) await dir.create(recursive: true);
+    await File('$appData/VocalPro/.version').writeAsString(currentVersion);
   } catch (_) {}
 }
 

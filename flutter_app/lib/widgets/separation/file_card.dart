@@ -227,11 +227,10 @@ class FileCard extends StatelessWidget {
               ),
             ),
           ),
-        if (fileState == null || fileState is double)
-          InkWell(
-            onTap: () => ctrl.removeFile(index),
-            child: Icon(Icons.close_rounded, size: 16, color: AppColors.textDim),
-          ),
+        InkWell(
+          onTap: () => ctrl.removeFile(index),
+          child: Icon(Icons.close_rounded, size: 16, color: AppColors.textDim),
+        ),
       ]),
     );
   }

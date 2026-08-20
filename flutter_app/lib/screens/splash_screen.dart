@@ -2,24 +2,11 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../theme.dart';
-import '../widgets/cards.dart';
 
 /// Animated splash/landing screen with gradient background, animated logo,
 /// waveform bars, and staggered entrance transitions.
-///
-/// Also displays backend startup status when [appState] transitions beyond the
-/// initial animation phase.
 class SplashScreen extends StatefulWidget {
-  final String appState; // 'splashAnimate', 'backendLoading', 'backendReady', 'backendError'
-  final String? errorMessage;
-  final VoidCallback? onRetry;
-
-  const SplashScreen({
-    super.key,
-    required this.appState,
-    this.errorMessage,
-    this.onRetry,
-  });
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -144,8 +131,8 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                       const SizedBox(height: 60),
 
-                      // ── Backend status indicator ──────────────
-                      _buildBackendStatus(),
+                      // ── Loading indicator ─────────────────────
+                      _buildLoadingIndicator(),
                     ],
                   ),
                 ),
@@ -157,7 +144,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: Opacity(
                     opacity: _logoFade.value,
                     child: Text(
-                      'v1.0.0',
+                      'v2.5.0',
                       style: AppTextStyles.mono(context).copyWith(
                         fontSize: 11,
                         color: AppColors.textDim.withValues(alpha: 0.5),
@@ -173,117 +160,12 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 
-  Widget _buildBackendStatus() {
-    switch (widget.appState) {
-      case 'splashAnimate':
-        // Still in initial animation — show loading dots.
-        return Opacity(
-          opacity: _indicatorFade.value,
-          child: _LoadingDots(progress: _controller.value),
-        );
-
-      case 'backendLoading':
-        // Backend is starting — show spinner + message.
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: AppColors.accentPurple,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'Starting backend server...',
-              style: AppTextStyles.body(context).copyWith(
-                fontSize: 13,
-                color: AppColors.textDim,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'This may take a few seconds',
-              style: AppTextStyles.caption(context),
-            ),
-          ],
-        );
-
-      case 'backendReady':
-        // Connected — brief checkmark before transition.
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.check_rounded,
-                  color: AppColors.success, size: 20),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Backend connected',
-              style: AppTextStyles.body(context).copyWith(
-                color: AppColors.success,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        );
-
-      case 'backendError':
-        // Failed — show error + retry.
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: AppColors.error.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.error_outline_rounded,
-                  color: AppColors.error, size: 20),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Could not connect to backend',
-              style: AppTextStyles.body(context).copyWith(
-                color: AppColors.error,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (widget.errorMessage != null) ...[
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Text(
-                  widget.errorMessage!,
-                  style: AppTextStyles.caption(context),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-            const SizedBox(height: 16),
-            AccentButton(
-              label: 'Retry',
-              icon: Icons.refresh_rounded,
-              onPressed: widget.onRetry,
-              compact: true,
-            ),
-          ],
-        );
-
-      default:
-        return const SizedBox.shrink();
-    }
+  Widget _buildLoadingIndicator() {
+    // Simple loading animation while app starts
+    return Opacity(
+      opacity: _indicatorFade.value,
+      child: _LoadingDots(progress: _controller.value),
+    );
   }
 
   List<Widget> _buildGlowOrbs(double progress) {

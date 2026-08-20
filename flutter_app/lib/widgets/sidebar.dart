@@ -17,7 +17,6 @@ class SideBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.instance(context);
     final items = [
-      _NavItem(Icons.home_rounded, l10n.home),
       _NavItem(Icons.content_cut_rounded, l10n.separation),
       _NavItem(Icons.equalizer_rounded, l10n.stems),
       _NavItem(Icons.history_rounded, l10n.history),
@@ -69,7 +68,7 @@ class SideBar extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
-              'v2.5',
+              'v2.5.0',
               style: AppTextStyles.caption(context).copyWith(fontSize: 10),
             ),
           ),

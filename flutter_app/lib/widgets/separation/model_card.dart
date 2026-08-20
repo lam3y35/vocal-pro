@@ -28,7 +28,10 @@ class ModelCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: AppColors.glassBorder),
                 ),
-                child: DropdownButtonHideUnderline(
+                child: Tooltip(
+                  message: 'Choose the AI model \u2014 larger models give better quality but need more VRAM and time',
+                  waitDuration: const Duration(milliseconds: 300),
+                  child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: ctrl.modelName,
                     isExpanded: true,
@@ -44,7 +47,7 @@ class ModelCard extends StatelessWidget {
                       if (v != null) ctrl.modelName = v;
                     },
                   ),
-                ),
+                ),),
               ),
             ),
             const SizedBox(width: 8),

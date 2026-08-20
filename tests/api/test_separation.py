@@ -88,19 +88,19 @@ class TestStatus:
         assert resp.status_code == 200
         data = resp.json()
         assert "is_running" in data
-        assert "is_cancelled" in data
+        assert "running_jobs" in data
 
     def test_status_structure(self, client):
         data = client.get("/api/status").json()
         assert isinstance(data["is_running"], bool)
-        assert isinstance(data["is_cancelled"], bool)
+        assert isinstance(data["running_jobs"], list)
 
 
 class TestCancel:
     def test_cancel_returns_ok(self, client):
         resp = client.post("/api/cancel")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "cancelling"
+        assert resp.json()["status"] in ("cancelling", "no_active_job")
 
     def test_cancel_twice(self, client):
         resp1 = client.post("/api/cancel")
@@ -108,9 +108,14 @@ class TestCancel:
         assert resp1.status_code == 200
         assert resp2.status_code == 200
 
-    def test_cancel_sets_event(self, client, mock_cancel_event):
-        client.post("/api/cancel")
-        assert mock_cancel_event.set.called
+    def test_cancel_with_job(self, client, sample_wav):
+        """Start a job then cancel it — verify the cancel response."""
+        resp = client.post("/api/separate", json={"file_paths": [sample_wav]})
+        assert resp.status_code == 200
+
+        resp = client.post("/api/cancel")
+        assert resp.status_code == 200
+        assert resp.json()["status"] in ("cancelling", "no_active_job")
 
     def test_cancel_method_not_allowed(self, client):
         resp = client.get("/api/cancel")

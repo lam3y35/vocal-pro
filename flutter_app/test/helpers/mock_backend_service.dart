@@ -38,7 +38,7 @@ class MockBackendService extends BackendService {
   }
 
   @override
-  void setPythonPath(String path) {}
+  Future<void> setPythonPath(String path) async {}
 
   @override
   String? get pythonPathOverride => null;

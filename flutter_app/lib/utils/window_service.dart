@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show Offset, Size;
+import 'dart:ffi';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
-import 'package:window_manager/window_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:win32/win32.dart';
 
 /// Manages window-level features: always-on-top, persistent position/size,
 /// minimize-to-tray, and system tray icon.
+///
+/// Uses the [win32] package to call native Windows API functions directly,
+/// avoiding the window_manager plugin which is incompatible with Flutter 3.29+.
 class WindowService extends ChangeNotifier {
   static WindowService? _instance;
 
@@ -27,11 +31,22 @@ class WindowService extends ChangeNotifier {
 
   bool _traySetupDone = false;
 
+  /// Find the native window handle (HWND) by window title.
+  /// Returns 0 if the window isn't found yet (e.g., during early startup).
+  static int _findHwnd() {
+    final title = 'VocalPro'.toNativeUtf16(allocator: calloc);
+    try {
+      return FindWindow(Pointer<Utf16>.fromAddress(0), title);
+    } finally {
+      calloc.free(title);
+    }
+  }
+
   // ── Init ──────────────────────────────────────────────────────────
 
   Future<void> init() async {
-    _alwaysOnTop = _loadAlwaysOnTop();
-    _minimizeToTray = _loadMinimizeToTray();
+    _alwaysOnTop = await _loadAlwaysOnTopAsync();
+    _minimizeToTray = await _loadMinimizeToTrayAsync();
     notifyListeners();
   }
 
@@ -39,8 +54,12 @@ class WindowService extends ChangeNotifier {
 
   Future<void> setAlwaysOnTop(bool value) async {
     _alwaysOnTop = value;
-    await WindowManager.instance.setAlwaysOnTop(value);
-    _saveAlwaysOnTop(value);
+    final h = _findHwnd();
+    if (h != 0) {
+      SetWindowPos(h, value ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+          SWP_NOMOVE | SWP_NOSIZE);
+    }
+    await _saveAlwaysOnTopAsync(value);
     notifyListeners();
   }
 
@@ -48,23 +67,29 @@ class WindowService extends ChangeNotifier {
 
   Future<void> setMinimizeToTray(bool value) async {
     _minimizeToTray = value;
-    _saveMinimizeToTray(value);
+    await _saveMinimizeToTrayAsync(value);
     notifyListeners();
   }
 
   /// Handle window close/minimize event.
+  /// Hides the window (minimize-to-tray) when tray is active;
+  /// otherwise destroys the window which quits the app.
   Future<void> handleClose() async {
+    final h = _findHwnd();
+    if (h == 0) return;
     if (_minimizeToTray && _hasTray) {
-      await WindowManager.instance.hide();
+      ShowWindow(h, SW_HIDE);
     } else {
-      await WindowManager.instance.close();
+      DestroyWindow(h);
     }
   }
 
   /// Restore window from tray.
   Future<void> showWindow() async {
-    await WindowManager.instance.show();
-    await WindowManager.instance.focus();
+    final h = _findHwnd();
+    if (h == 0) return;
+    ShowWindow(h, SW_SHOW);
+    SetForegroundWindow(h);
   }
 
   // ── Tray ──────────────────────────────────────────────────────────
@@ -74,7 +99,7 @@ class WindowService extends ChangeNotifier {
     _traySetupDone = true;
 
     try {
-      final iconPath = _getTrayIconPath();
+      final iconPath = await _getTrayIconPathAsync();
       if (iconPath == null) {
         _hasTray = false;
         return;
@@ -107,27 +132,35 @@ class WindowService extends ChangeNotifier {
 
   Future<void> saveWindowPosition() async {
     try {
-      final pos = await WindowManager.instance.getPosition();
-      final size = await WindowManager.instance.getSize();
+      final h = _findHwnd();
+      if (h == 0) return;
+      final rect = calloc<RECT>();
+      GetWindowRect(h, rect);
       final data = {
-        'x': pos.dx,
-        'y': pos.dy,
-        'width': size.width,
-        'height': size.height,
+        'x': rect.ref.left,
+        'y': rect.ref.top,
+        'width': rect.ref.right - rect.ref.left,
+        'height': rect.ref.bottom - rect.ref.top,
       };
-      _saveWindowData(data);
+      calloc.free(rect);
+      await _saveWindowDataAsync(data);
     } catch (_) {}
   }
 
   Future<void> loadWindowPosition() async {
     try {
-      final data = _loadWindowData();
+      final data = await _loadWindowDataAsync();
       if (data == null) return;
-      await WindowManager.instance.setPosition(
-        Offset(data['x'] as double, data['y'] as double),
-      );
-      await WindowManager.instance.setSize(
-        Size(data['width'] as double, data['height'] as double),
+      final h = _findHwnd();
+      if (h == 0) return;
+      SetWindowPos(
+        h,
+        0,
+        (data['x'] as num).toInt(),
+        (data['y'] as num).toInt(),
+        (data['width'] as num).toInt(),
+        (data['height'] as num).toInt(),
+        SWP_NOZORDER,
       );
     } catch (_) {}
   }
@@ -142,79 +175,84 @@ class WindowService extends ChangeNotifier {
     return '$appData/VocalPro/window_settings.json';
   }
 
-  bool _loadAlwaysOnTop() {
+  Future<bool> _loadAlwaysOnTopAsync() async {
     try {
       final f = File(_settingsFile());
-      if (!f.existsSync()) return false;
-      final data = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      if (!await f.exists()) return false;
+      final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       return data['always_on_top'] as bool? ?? false;
     } catch (_) {
       return false;
     }
   }
 
-  void _saveAlwaysOnTop(bool value) {
-    _mergeSetting('always_on_top', value);
+  Future<void> _saveAlwaysOnTopAsync(bool value) async {
+    await _mergeSettingAsync('always_on_top', value);
   }
 
-  bool _loadMinimizeToTray() {
+  Future<bool> _loadMinimizeToTrayAsync() async {
     try {
       final f = File(_settingsFile());
-      if (!f.existsSync()) return true;
-      final data = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      if (!await f.exists()) return true;
+      final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       return data['minimize_to_tray'] as bool? ?? true;
     } catch (_) {
       return true;
     }
   }
 
-  void _saveMinimizeToTray(bool value) {
-    _mergeSetting('minimize_to_tray', value);
+  Future<void> _saveMinimizeToTrayAsync(bool value) async {
+    await _mergeSettingAsync('minimize_to_tray', value);
   }
 
-  Map<String, dynamic>? _loadWindowData() {
+  Future<Map<String, dynamic>?> _loadWindowDataAsync() async {
     try {
       final f = File(_settingsFile());
-      if (!f.existsSync()) return null;
-      final data = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
-      if (data['x'] == null || data['y'] == null || data['width'] == null || data['height'] == null) return null;
+      if (!await f.exists()) return null;
+      final data = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
+      if (data['x'] == null ||
+          data['y'] == null ||
+          data['width'] == null ||
+          data['height'] == null) {
+        return null;
+      }
       return data;
     } catch (_) {
       return null;
     }
   }
 
-  void _saveWindowData(Map<String, dynamic> data) {
-    _mergeSettings(data);
+  Future<void> _saveWindowDataAsync(Map<String, dynamic> data) async {
+    await _mergeSettingsAsync(data);
   }
 
-  void _mergeSetting(String key, dynamic value) {
-    _mergeSettings({key: value});
+  Future<void> _mergeSettingAsync(String key, dynamic value) async {
+    await _mergeSettingsAsync({key: value});
   }
 
-  void _mergeSettings(Map<String, dynamic> updates) {
+  Future<void> _mergeSettingsAsync(Map<String, dynamic> updates) async {
     try {
       final f = File(_settingsFile());
       final dir = f.parent;
-      if (!dir.existsSync()) dir.createSync(recursive: true);
+      if (!await dir.exists()) await dir.create(recursive: true);
 
       Map<String, dynamic> settings = {};
-      if (f.existsSync()) {
-        settings = jsonDecode(f.readAsStringSync()) as Map<String, dynamic>;
+      if (await f.exists()) {
+        settings = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       }
       settings.addAll(updates);
-      f.writeAsStringSync(jsonEncode(settings));
+      await f.writeAsString(jsonEncode(settings));
     } catch (_) {}
   }
 
   // ── Tray icon path ────────────────────────────────────────────────
 
-  String? _getTrayIconPath() {
+  Future<String?> _getTrayIconPathAsync() async {
     // Use the app icon from the executable directory
     try {
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       final icoPath = '$exeDir\\vocalpro.ico';
-      if (File(icoPath).existsSync()) return icoPath;
+      if (await File(icoPath).exists()) return icoPath;
     } catch (_) {}
 
     // Fallback: no icon file found — can't set up tray
@@ -228,7 +266,9 @@ class WindowService extends ChangeNotifier {
     _instance = null;
     super.dispose();
   }
-}/// Tray event listener — listens for tray icon clicks and menu selections.
+}
+
+/// Tray event listener — listens for tray icon clicks and menu selections.
 class AppTrayListener extends TrayListener {
   @override
   void onTrayIconMouseDown() {
@@ -237,15 +277,20 @@ class AppTrayListener extends TrayListener {
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
+    final winSvc = WindowService();
     switch (menuItem.key) {
       case 'show':
-        WindowService().showWindow();
+        winSvc.showWindow();
         break;
       case 'quit':
-        WindowManager.instance.destroy();
+        final title = 'VocalPro'.toNativeUtf16(allocator: calloc);
+        try {
+          final h = FindWindow(Pointer<Utf16>.fromAddress(0), title);
+          if (h != 0) DestroyWindow(h);
+        } finally {
+          calloc.free(title);
+        }
         break;
     }
   }
 }
-
-

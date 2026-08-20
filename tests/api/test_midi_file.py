@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import tempfile
 
-import pytest
-
 
 def _import_midi_writer():
     """Import the _write_midi function from the api_server module."""

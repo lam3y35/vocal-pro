@@ -31,7 +31,8 @@ class TestConfig:
         assert cfg["output_format"] in ("wav", "mp3", "flac")
 
     def test_load_no_file(self):
-        with patch("code.config.CONFIG_FILE", Path("/nonexistent/.x.json")):
+        with patch("code.config.CONFIG_FILE", Path("/nonexistent/.x.json")), \
+             patch("torch.cuda.is_available", return_value=True):
             from code.config import load_config
             assert load_config()["model_name"] == "htdemucs_ft"
 
@@ -61,7 +62,8 @@ class TestConfig:
         f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump({"segment": 8.0, "shifts": 2}, f); f.close()
         try:
-            with patch("code.config.CONFIG_FILE", Path(f.name)):
+            with patch("code.config.CONFIG_FILE", Path(f.name)), \
+                 patch("torch.cuda.is_available", return_value=True):
                 from code.config import load_config
                 c = load_config()
                 assert c["segment"] == 8.0 and c["shifts"] == 2 and c["model_name"] == "htdemucs_ft"

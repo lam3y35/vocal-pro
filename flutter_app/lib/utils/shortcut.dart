@@ -11,7 +11,9 @@ import 'dart:io';
 /// - Sets the shortcut icon to `vocalpro.ico` (next to the EXE, if found),
 ///   falling back to the EXE's own embedded icon (index 0).
 /// - Fails silently — this is a non-critical UX convenience.
-void createDesktopShortcut() {
+///
+/// Now async — file I/O no longer blocks the UI thread.
+Future<void> createDesktopShortcut() async {
   final appData = Platform.environment['APPDATA'];
   final userProfile = Platform.environment['USERPROFILE'];
   final home = Platform.environment['HOME'];
@@ -23,7 +25,7 @@ void createDesktopShortcut() {
   );
 
   final marker = File('${vocalProDir.path}/.shortcut_created');
-  if (marker.existsSync()) return; // Already created once.
+  if (await marker.exists()) return; // Already created once.
 
   // Desktop path: USERPROFILE/Desktop on Windows, ~/Desktop everywhere else.
   final desktopDir = userProfile != null
@@ -37,26 +39,29 @@ void createDesktopShortcut() {
   //   1. Look for vocalpro.ico next to the executable.
   //   2. If not found, point to the EXE itself (which has the icon embedded
   //      via Runner.rc → resources/app_icon.ico at build time).
-  final iconPath = [
+  String iconPath = exePath;
+  final iconCandidates = [
     '$workingDir\\vocalpro.ico',
     '$workingDir\\assets\\vocalpro.ico',
-    exePath, // Fallback: use the EXE's embedded icon (index 0).
-  ].firstWhere(
-    (p) => p == exePath || File(p).existsSync(),
-    orElse: () => exePath,
-  );
+  ];
+  for (final candidate in iconCandidates) {
+    if (await File(candidate).exists()) {
+      iconPath = candidate;
+      break;
+    }
+  }
 
   // Ensure the app data directory exists so we can write the marker.
   try {
-    vocalProDir.createSync(recursive: true);
+    await vocalProDir.create(recursive: true);
   } catch (_) {
     return;
   }
 
   // Shortcut exists already — just write the marker and return.
-  if (File(shortcutPath).existsSync()) {
+  if (await File(shortcutPath).exists()) {
     try {
-      marker.writeAsStringSync('1');
+      await marker.writeAsString('1');
     } catch (_) {}
     return;
   }
@@ -73,7 +78,7 @@ void createDesktopShortcut() {
 \$sc.Save()
 ''';
 
-    Process.run(
+    await Process.run(
       'powershell',
       [
         '-NoProfile',
@@ -85,7 +90,7 @@ void createDesktopShortcut() {
       runInShell: true,
     );
 
-    marker.writeAsStringSync('1');
+    await marker.writeAsString('1');
   } catch (_) {
     // Non-critical — fail silently.
   }
