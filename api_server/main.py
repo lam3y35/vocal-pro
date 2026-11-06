@@ -39,11 +39,15 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, Response  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-# librosa, numpy, soundfile are lazy-imported inside the endpoints that need
-# them (analyze, stems, preview). This avoids ~2-3s startup penalty from
-# loading the heavy audio/ML stack at import time.
-np = None  # type: ignore
-sf = None  # type: ignore
+# librosa, numpy, soundfile are imported at module level for endpoints
+# (analyze, stems, preview) and test patching.
+import numpy as np
+import soundfile as sf
+try:
+    import librosa
+except ImportError:
+    librosa = None  # type: ignore
+
 
 
 logger = logging.getLogger("vocalpro.api")
@@ -57,6 +61,13 @@ async def _lifespan(_app: FastAPI):
     """Capture the main event loop at startup for thread-safe WebSocket broadcasts."""
     global _MAIN_LOOP  # noqa
     _MAIN_LOOP = asyncio.get_running_loop()
+    try:
+        import torch
+        cpu_count = os.cpu_count() or 4
+        torch.set_num_threads(cpu_count)
+        logger.info("PyTorch CPU threads configured to %d", cpu_count)
+    except Exception:
+        pass
     logger.info("Main event loop captured for thread-safe WebSocket sends")
     yield
     # No cleanup needed on shutdown
@@ -256,20 +267,26 @@ def _start_worker(
 
             results: dict[int, str] = {}
             file_futures = {}
+            file_progress: dict[int, float] = {i: 0.0 for i in range(total)}
+            fp_lock = threading.Lock()
 
             with ThreadPoolExecutor(max_workers=pw) as pool:
                 def _run_one(file_path: str, file_index: int) -> tuple[int, str]:
                     try:
                         def _progress_cb(pct: float, msg: str):
+                            with fp_lock:
+                                file_progress[file_index] = pct
+                                overall_pct = sum(file_progress.values()) / total
                             # Broadcast progress via WebSocket
                             _broadcast_job(job_id, {
                                 "type": "progress",
-                                "percent": pct,
+                                "percent": round(overall_pct, 1),
+                                "file_percent": round(pct, 1),
                                 "message": msg,
                                 "file_index": file_index,
                             })
                             # Also update the job record so HTTP polling sees real progress
-                            _update_job(job_id, total_progress=pct / 100.0, status_text=msg)
+                            _update_job(job_id, total_progress=overall_pct / 100.0, status_text=msg)
 
                         engine = SeparationEngine(
                             dict(base_engine_config),
@@ -285,6 +302,8 @@ def _start_worker(
                         })
 
                         out = engine.separate_file(file_path, output_dir)
+                        with fp_lock:
+                            file_progress[file_index] = 100.0
 
                         del engine
                         gc.collect()
@@ -372,12 +391,21 @@ class SeparationRequest(BaseModel):
     ensemble_mode: bool = False
     include_sfx: bool = True
     save_background_track: bool = False
+    save_bg: Optional[bool] = None
     generate_comparison_samples: bool = False
+    gen_samples: Optional[bool] = None
     enable_sfx_separation: bool = False
+    enable_sfx_sep: Optional[bool] = None
+    # GUI aliases for processing options
+    enable_gate: Optional[bool] = None
+    enable_denoise: Optional[bool] = None
+    enable_multiband: Optional[bool] = None
+    enable_profile: Optional[bool] = None
+    adaptive_gate: Optional[bool] = None
     # Advanced
     segment: float = 6.0
     overlap: float = 2.0
-    shifts: int = 1
+    shifts: int = 0
     gate_threshold_db: float = -55.0
     gate_floor_db: float = -60.0
     denoise_strength: float = 0.55
@@ -405,9 +433,16 @@ async def health():
     gpu_name = ""
     gpu_vram = ""
     if gpu_available:
-        gpu_name = torch.cuda.get_device_name(0)
-        vram = torch.cuda.get_device_properties(0).total_mem / (1024 ** 3)
-        gpu_vram = f"{vram:.1f} GB"
+        try:
+            gpu_name = str(torch.cuda.get_device_name(0))
+            props = torch.cuda.get_device_properties(0)
+            mem = getattr(props, "total_memory", None)
+            if not isinstance(mem, (int, float)):
+                mem = getattr(props, "total_mem", 0)
+            vram = float(mem) / (1024 ** 3)
+            gpu_vram = f"{vram:.1f} GB"
+        except Exception:
+            gpu_vram = ""
     return {
         "status": "ok",
         "gpu_available": gpu_available,
@@ -442,14 +477,29 @@ async def update_config(updates: list[ConfigUpdate]):
 @app.get("/api/models")
 async def list_models():
     """Return available AI models with descriptions."""
+    gpu = False
+    try:
+        import torch
+        gpu = torch.cuda.is_available()
+    except Exception:
+        pass
+
     models = {
-        "htdemucs_ft": {"name": "htdemucs_ft", "description": "Best quality — fine-tuned (recommended, ~3.5 GB VRAM)", "recommended": True},
-        "htdemucs": {"name": "htdemucs", "description": "Faster — base transformer, slightly lower quality"},
+        "htdemucs_ft": {
+            "name": "htdemucs_ft",
+            "description": "Best quality — fine-tuned (recommended for GPU, slow on CPU)",
+            "recommended": True,
+        },
+        "htdemucs": {
+            "name": "htdemucs",
+            "description": "Faster — base transformer (recommended for CPU)",
+            "recommended": False,
+        },
         "htdemucs_6s": {"name": "htdemucs_6s", "description": "6-stem — isolates piano + guitar as separate tracks"},
         "hdemucs_mmi": {"name": "hdemucs_mmi", "description": "v3 architecture — different separation profile"},
         "mdx": {"name": "mdx", "description": "MDX winner — good balance of speed & quality"},
         "mdx_extra": {"name": "mdx_extra", "description": "MDX extra — more robust with extra training data"},
-        "mdx_q": {"name": "mdx_q", "description": "MDX quantized — smaller, very fast, lower quality"},
+        "mdx_q": {"name": "mdx_q", "description": "MDX quantized — fastest on CPU, lowest memory usage"},
         "mdx_extra_q": {"name": "mdx_extra_q", "description": "MDX extra quantized — good for low VRAM systems"},
     }
     return {"models": models}
@@ -536,6 +586,15 @@ async def start_separation(req: SeparationRequest):
     output_dir = req.output_dir or OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
 
+    save_bg_enabled = bool(req.save_bg if req.save_bg is not None else req.save_background_track)
+    gate_enabled = bool(req.enable_gate if req.enable_gate is not None else req.enable_vocal_gate)
+    denoise_enabled = bool(req.enable_denoise if req.enable_denoise is not None else req.enable_spectral_denoise)
+    multiband_enabled = bool(req.enable_multiband if req.enable_multiband is not None else req.enable_multiband_denoise)
+    profile_enabled = bool(req.enable_profile if req.enable_profile is not None else req.enable_noise_profile)
+    adaptive_gate_enabled = bool(req.adaptive_gate if req.adaptive_gate is not None else req.adaptive_gate_floor)
+    gen_samples_enabled = bool(req.gen_samples if req.gen_samples is not None else req.generate_comparison_samples)
+    sfx_sep_enabled = bool(req.enable_sfx_sep if req.enable_sfx_sep is not None else req.enable_sfx_separation)
+
     base_engine_config = {
         "model_name": req.model_name,
         "segment": req.segment,
@@ -543,15 +602,16 @@ async def start_separation(req: SeparationRequest):
         "shifts": req.shifts,
         "output_format": req.output_format,
         "include_sfx": req.include_sfx,
-        "save_background_track": req.save_background_track,
-        "generate_comparison_samples": req.generate_comparison_samples,
+        "save_background_track": save_bg_enabled,
+        "save_bg": save_bg_enabled,
+        "generate_comparison_samples": gen_samples_enabled,
         "trim_silence": req.trim_silence,
-        "enable_vocal_gate": req.enable_vocal_gate,
-        "enable_spectral_denoise": req.enable_spectral_denoise,
-        "enable_multiband_denoise": req.enable_multiband_denoise,
-        "enable_noise_profile": req.enable_noise_profile,
-        "adaptive_gate_floor": req.adaptive_gate_floor,
-        "enable_sfx_separation": req.enable_sfx_separation,
+        "enable_vocal_gate": gate_enabled,
+        "enable_spectral_denoise": denoise_enabled,
+        "enable_multiband_denoise": multiband_enabled,
+        "enable_noise_profile": profile_enabled,
+        "adaptive_gate_floor": adaptive_gate_enabled,
+        "enable_sfx_separation": sfx_sep_enabled,
         "karaoke_mode": req.karaoke_mode,
         "ensemble_mode": req.ensemble_mode,
         "gate_threshold_db": req.gate_threshold_db,
@@ -730,18 +790,27 @@ async def list_outputs():
     if not os.path.isdir(OUTPUT_DIR):
         return {"outputs": results}
 
-    for entry in sorted(os.listdir(OUTPUT_DIR), reverse=True):
+    entries = []
+    for entry in os.listdir(OUTPUT_DIR):
         entry_path = os.path.join(OUTPUT_DIR, entry)
         if os.path.isdir(entry_path):
-            files = []
-            for f in os.listdir(entry_path):
-                fp = os.path.join(entry_path, f)
-                if os.path.isfile(fp):
-                    files.append({
-                        "name": f,
-                        "size_mb": round(os.path.getsize(fp) / (1024 * 1024), 2),
-                        "path": fp,
-                    })
+            try:
+                mtime = os.path.getmtime(entry_path)
+            except OSError:
+                mtime = 0
+            entries.append((mtime, entry, entry_path))
+    entries.sort(key=lambda x: x[0], reverse=True)
+
+    for _, entry, entry_path in entries:
+        files = []
+        for f in os.listdir(entry_path):
+            fp = os.path.join(entry_path, f)
+            if os.path.isfile(fp):
+                files.append({
+                    "name": f,
+                    "size_mb": round(os.path.getsize(fp) / (1024 * 1024), 2),
+                    "path": fp,
+                })
             results.append({"name": entry, "path": entry_path, "files": files})
 
     return {"outputs": results}
@@ -757,10 +826,14 @@ async def get_stems(folder_name: str):
     stem_suffixes = {
         "vocals": "Vocals", "drums": "Drums", "bass": "Bass",
         "other": "Other", "guitar": "Guitar", "piano": "Piano",
+        "background": "Instrumental", "instrumental": "Instrumental",
+        "karaoke": "Instrumental",
     }
     stems = []
     for f in sorted(os.listdir(folder_path)):
         f_lower = f.lower()
+        if "_custom" in f_lower or "stem_mix" in f_lower:
+            continue
         for suffix, label in stem_suffixes.items():
             if suffix in f_lower and f.endswith((".wav", ".mp3", ".flac")):
                 fp = os.path.join(folder_path, f)
@@ -804,34 +877,38 @@ async def analyze_audio(req: AnalyzeRequest):
 
     audio_path = file_path
     tmp_extract = None
+    preview_audio_file = None
 
     if is_video:
         import shutil as _shutil
         ffmpeg_path = _shutil.which("ffmpeg")
         if ffmpeg_path:
             try:
+                import hashlib
                 import subprocess as _sp
-                tmp_extract = os.path.join(
-                    os.path.dirname(file_path),
-                    f"_analyze_tmp_{os.path.basename(file_path)}.wav",
-                )
-                result = _sp.run(
-                    [ffmpeg_path, "-y", "-i", file_path,
-                     "-vn", "-acodec", "pcm_s16le", "-ar", "44100",
-                     "-ac", "1", tmp_extract],
-                    capture_output=True, timeout=60,
-                )
-                if result.returncode == 0 and os.path.isfile(tmp_extract):
-                    audio_path = tmp_extract
+                import tempfile
+                h = hashlib.md5(file_path.encode("utf-8")).hexdigest()[:12]
+                cached_wav = os.path.join(tempfile.gettempdir(), f"vocalpro_prev_{h}.wav")
+                if not os.path.isfile(cached_wav):
+                    _sp.run(
+                        [ffmpeg_path, "-y", "-i", file_path,
+                         "-vn", "-acodec", "pcm_s16le", "-ar", "44100",
+                         "-ac", "2", cached_wav],
+                        capture_output=True, timeout=60,
+                    )
+                if os.path.isfile(cached_wav):
+                    audio_path = cached_wav
+                    preview_audio_file = cached_wav
             except Exception:
                 pass
-            finally:
-                if tmp_extract and not os.path.isfile(tmp_extract):
-                    tmp_extract = None
 
     try:
-        import librosa as _librosa
-        import numpy as _np
+        _librosa = librosa
+        if _librosa is None:
+            import librosa as _librosa
+        _np = np
+        if _np is None:
+            import numpy as _np
 
         y, sr = _librosa.load(audio_path, duration=30, res_type="kaiser_fast", mono=True)
 
@@ -841,6 +918,7 @@ async def analyze_audio(req: AnalyzeRequest):
             "bpm": None,
             "key": None,
             "video_file": is_video,
+            "audio_path": preview_audio_file or file_path,
         }
 
         if len(y) >= sr:
@@ -875,13 +953,14 @@ async def analyze_audio(req: AnalyzeRequest):
                 pass
 
         try:
-            y_full, _ = _librosa.load(audio_path, sr=None, mono=True)
+            y_full, orig_sr = _librosa.load(audio_path, sr=None, mono=True)
             target_samples = min(8000, len(y_full))
             indices = _np.linspace(0, len(y_full) - 1, target_samples, dtype=int)
             waveform = y_full[indices].astype(_np.float32).tolist()
             result["waveform"] = waveform
             result["waveform_samples"] = len(waveform)
-            result["full_duration_sec"] = round(len(y_full) / (sr or 44100), 2)
+            actual_sr = orig_sr or sr or 44100
+            result["full_duration_sec"] = round(len(y_full) / actual_sr, 2)
         except Exception:
             result["waveform"] = []
             result["waveform_samples"] = 0
@@ -919,10 +998,15 @@ async def stem_preview(req: StemMixRequest):
     if not os.path.isdir(folder_path):
         raise HTTPException(404, "Folder not found")
 
-    stem_suffixes = {"vocals", "drums", "bass", "other", "guitar", "piano"}
+    stem_suffixes = {
+        "vocals", "drums", "bass", "other", "guitar", "piano",
+        "background", "instrumental", "karaoke",
+    }
     stem_files = []
     for f in os.listdir(folder_path):
         f_lower = f.lower()
+        if "_custom" in f_lower or "stem_mix" in f_lower:
+            continue
         for suffix in stem_suffixes:
             if suffix in f_lower and f.endswith((".wav", ".mp3", ".flac")):
                 stem_files.append(os.path.join(folder_path, f))
@@ -933,8 +1017,8 @@ async def stem_preview(req: StemMixRequest):
 
     try:
         import io
-        import soundfile as _sf
-        import numpy as _np
+        _sf = sf if sf is not None else __import__("soundfile")
+        _np = np if np is not None else __import__("numpy")
 
         master = req.master_volume
         mixed = None
@@ -951,6 +1035,7 @@ async def stem_preview(req: StemMixRequest):
             if vol < 0.01:
                 continue
             data, file_sr = _sf.read(stem_path, dtype="float32")
+            target_sr = file_sr
             if data.ndim == 1:
                 data = data[:, _np.newaxis]
             data = data[:int(preview_len * file_sr)]
@@ -989,10 +1074,15 @@ async def stem_export(req: StemExportRequest):
     if not os.path.isdir(folder_path):
         raise HTTPException(404, "Folder not found")
 
-    stem_suffixes = {"vocals", "drums", "bass", "other", "guitar", "piano"}
+    stem_suffixes = {
+        "vocals", "drums", "bass", "other", "guitar", "piano",
+        "background", "instrumental", "karaoke",
+    }
     stem_files = []
     for f in os.listdir(folder_path):
         f_lower = f.lower()
+        if "_custom" in f_lower or "stem_mix" in f_lower:
+            continue
         for suffix in stem_suffixes:
             if suffix in f_lower and f.endswith((".wav", ".mp3", ".flac")):
                 stem_files.append(os.path.join(folder_path, f))
@@ -1002,8 +1092,8 @@ async def stem_export(req: StemExportRequest):
         raise HTTPException(404, "No stem files found")
 
     try:
-        import soundfile as _sf
-        import numpy as _np
+        _sf = sf if sf is not None else __import__("soundfile")
+        _np = np if np is not None else __import__("numpy")
 
         master = req.master_volume
         mixed = None
@@ -1019,6 +1109,7 @@ async def stem_export(req: StemExportRequest):
             if vol < 0.01:
                 continue
             data, file_sr = _sf.read(stem_path, dtype="float32")
+            target_sr = file_sr
             if data.ndim == 1:
                 data = data[:, _np.newaxis]
             if mixed is None:
@@ -1057,7 +1148,10 @@ async def stem_export_separate(req: StemExportSeparateRequest):
     if not os.path.isdir(folder_path):
         raise HTTPException(404, "Folder not found")
 
-    stem_suffixes = {"vocals", "drums", "bass", "other", "guitar", "piano"}
+    stem_suffixes = {
+        "vocals", "drums", "bass", "other", "guitar", "piano",
+        "background", "instrumental", "karaoke",
+    }
     ext = req.output_format
     master = req.master_volume
     exported = []
@@ -1080,7 +1174,7 @@ async def stem_export_separate(req: StemExportSeparateRequest):
                 break
 
         try:
-            import soundfile as _sf
+            _sf = sf if sf is not None else __import__("soundfile")
             data, sr = _sf.read(stem_path, dtype="float32")
             if vol != 1.0:
                 data = data * vol
@@ -1109,9 +1203,9 @@ async def stem_to_midi(req: MidiRequest):
         raise HTTPException(404, "File not found")
 
     try:
-        import soundfile as _sf
-        import librosa as _librosa
-        import numpy as _np
+        _sf = sf if sf is not None else __import__("soundfile")
+        _librosa = librosa if librosa is not None else __import__("librosa")
+        _np = np if np is not None else __import__("numpy")
 
         y, sr = _sf.read(file_path, dtype="float32")
         if y.ndim == 2:

@@ -113,13 +113,14 @@ void main() {
 
   group('ProgressType enum', () {
     test('has all expected values', () {
-      expect(ProgressType.values.length, 6);
+      expect(ProgressType.values.length, 7);
       expect(ProgressType.values, contains(ProgressType.progress));
       expect(ProgressType.values, contains(ProgressType.fileStart));
       expect(ProgressType.values, contains(ProgressType.done));
       expect(ProgressType.values, contains(ProgressType.error));
       expect(ProgressType.values, contains(ProgressType.cancelled));
       expect(ProgressType.values, contains(ProgressType.pong));
+      expect(ProgressType.values, contains(ProgressType.reconnected));
     });
   });
 }

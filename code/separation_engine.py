@@ -93,13 +93,13 @@ class SeparationEngine:
                 pass
         max_threads = self.config.get("max_threads", 0)
         if not max_threads or max_threads <= 0:
-            max_threads = max(1, (os.cpu_count() or 1) - 1)  # use all cores except 1
+            max_threads = os.cpu_count() or 4
         try:
             torch.set_num_threads(max_threads)
         except Exception:
             pass
-        os.environ.setdefault("OMP_NUM_THREADS", str(max_threads))
-        os.environ.setdefault("MKL_NUM_THREADS", str(max_threads))
+        os.environ["OMP_NUM_THREADS"] = str(max_threads)
+        os.environ["MKL_NUM_THREADS"] = str(max_threads)
 
         self.model = None
         self.model_name = None
@@ -112,7 +112,11 @@ class SeparationEngine:
         # VRAM detection: auto-tune segment size and guard against low-VRAM GPUs
         if self.device.type == "cuda":
             try:
-                vram_total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+                props = torch.cuda.get_device_properties(0)
+                mem = getattr(props, "total_memory", None)
+                if not isinstance(mem, (int, float)):
+                    mem = getattr(props, "total_mem", 0)
+                vram_total_gb = float(mem) / (1024 ** 3)
                 if vram_total_gb < 3.0:
                     self.device = torch.device("cpu")
                     self.progress(0, "⚠️ VRAM <3 GB, falling back to CPU")
@@ -146,10 +150,10 @@ class SeparationEngine:
             if cpu_model in CPU_HEAVY:
                 self.progress(0, f"⚠️ '{cpu_model}' on CPU will be slow — switch to mdx_q or htdemucs for faster processing")
             # Set safe CPU defaults (user can override via advanced settings)
-            current_shifts = int(self.config.get("shifts", 5))
-            if current_shifts > 1:
-                self.config["shifts"] = 1
-                self.progress(0, "⚡ CPU – shifts defaulted to 1 (change in Advanced Settings if needed)")
+            current_shifts = int(self.config.get("shifts", 0))
+            if current_shifts > 1 and "shifts" not in self.config:
+                self.config["shifts"] = 0
+                self.progress(0, "⚡ CPU – shifts defaulted to 0 for maximum speed (change in Advanced Settings if needed)")
             current_seg = float(self.config.get("segment", 24.0))
             if current_seg > 6.0:
                 self.config["segment"] = 6.0
@@ -178,7 +182,11 @@ class SeparationEngine:
         # Re-check VRAM scaling if model changed
         if self.device.type == "cuda" and old_model != new_model:
             try:
-                vram_total_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+                props = torch.cuda.get_device_properties(0)
+                mem = getattr(props, "total_memory", None)
+                if not isinstance(mem, (int, float)):
+                    mem = getattr(props, "total_mem", 0)
+                vram_total_gb = float(mem) / (1024 ** 3)
                 current_seg = float(self.config.get("segment", 16.0))
                 if vram_total_gb >= 12.0: target_seg = 24.0
                 elif vram_total_gb >= 8.0: target_seg = 16.0
@@ -596,7 +604,18 @@ class SeparationEngine:
         enable_gate = self.config.get("enable_vocal_gate", True)
         enable_denoise = self.config.get("enable_spectral_denoise", True)
         trim_silence = self.config.get("trim_silence", False)
-        save_bg = self.config.get("save_background_track", False)
+        save_bg = bool(self.config.get("save_background_track", False) or self.config.get("save_bg", False))
+        if save_bg and (other_array is None or any(k in result for k in ("drums", "bass", "guitar", "piano"))):
+            bg_components = [
+                src_data for k, src_data in result.items()
+                if k != "vocals" and isinstance(src_data, np.ndarray)
+            ]
+            if bg_components:
+                min_len = min(c.shape[-1] for c in bg_components)
+                full_bg = np.zeros((bg_components[0].shape[0], min_len), dtype=np.float32)
+                for c in bg_components:
+                    full_bg += c[:, :min_len]
+                other_array = full_bg
         enable_sfx_sep = self.config.get("enable_sfx_separation", False)
 
         # ── Write / move vocals file ──
@@ -858,7 +877,7 @@ class SeparationEngine:
             overlap_samples = chunk_samples - hop
         num_chunks = max(1, int(np.ceil((total_samples - overlap_samples) / hop)))
 
-        save_bg = self.config.get("save_background_track", False)
+        save_bg = bool(self.config.get("save_background_track", False) or self.config.get("save_bg", False))
         include_sfx = self.config.get("include_sfx", False)
         need_other = save_bg or include_sfx
 
@@ -969,21 +988,41 @@ class SeparationEngine:
         # holds the GIL (blocking daemon threads). Instead we spawn a subprocess
         # that sends HTTP requests to the API server -- no GIL contention.
         #
-        # Expected runtime: audio_duration * speed_factor * shifts
-        #   CPU (htdemucs): ~1.7x realtime × shifts
-        #   GPU (htdemucs_ft): ~0.15x realtime × shifts
+        # Expected runtime calibrated to model complexity:
+        #   htdemucs_ft is an ensemble of 4 fine-tuned models (~4x heavier than base).
+        #   htdemucs_6s separates 6 stems.
+        #   mdx models are single-track and fast.
+        model_name = getattr(self, "model_name", "htdemucs")
         if self.device.type == "cuda":
-            estimated_seconds = audio_duration * 0.15 * max(1, shifts)
+            speed_table = {
+                "htdemucs_ft": 0.22,
+                "htdemucs_6s": 0.18,
+                "htdemucs": 0.12,
+                "mdx_extra_q": 0.08,
+                "mdx_q": 0.08,
+                "mdx_extra": 0.10,
+                "mdx": 0.10,
+            }
+            base_factor = speed_table.get(model_name, 0.15)
         else:
-            estimated_seconds = audio_duration * 1.7 * max(1, shifts)
+            speed_table = {
+                "htdemucs_ft": 5.0,  # 4-model ensemble on CPU is compute-intensive
+                "htdemucs_6s": 2.5,  # 6 stems on CPU
+                "htdemucs": 1.5,     # standard 4-stem
+                "mdx_extra_q": 0.9,
+                "mdx_q": 0.8,
+                "mdx_extra": 1.2,
+                "mdx": 1.1,
+            }
+            base_factor = speed_table.get(model_name, 1.8)
+
+        estimated_seconds = audio_duration * base_factor * max(1, shifts)
 
         # Only spawn the subprocess if we have a job_id configured
         est_proc = None
         job_id = self.config.get("_job_id")
         if job_id and estimated_seconds > 3:
             server_url = "http://127.0.0.1:8000"
-            # Use \n delimiters to keep each statement on its own line and avoid
-            # the "compound statement after ;" syntax error in Python's grammar.
             nl = "\n"
             script = (
                 "import time, urllib.request, json" + nl +
@@ -995,16 +1034,21 @@ class SeparationEngine:
                 f"url='{server_url}'" + nl +
                 "while True:" + nl +
                 "    el=time.time()-t0" + nl +
-                "    if el>est*1.5: break" + nl +
-                "    pct=off+min(el/max(est,1),0.90)*sc" + nl +
+                "    ratio=el/max(est,1)" + nl +
+                "    if ratio<=1.0:" + nl +
+                "        frac=ratio*0.82" + nl +
+                "    else:" + nl +
+                "        frac=0.82+0.13*(1.0-(1.0/(1.0+(ratio-1.0)*0.6)))" + nl +
+                "    pct=off+min(frac,0.95)*sc" + nl +
+                "    rem=max(0,round(est-el))" + nl +
                 "    try:" + nl +
-                "        msg='Separating '+str(round(el))+'s/~'+str(round(est))+'s'" + nl +
+                "        msg='Separating audio... ('+str(round(el))+'s elapsed)'" + nl +
                 "        data=json.dumps({'percent':round(pct,1),'message':msg}).encode()" + nl +
                 "        req=urllib.request.Request(url+'/api/jobs/'+jid+'/progress',data=data,headers={'Content-Type':'application/json'})" + nl +
                 "        urllib.request.urlopen(req,timeout=2)" + nl +
                 "    except:" + nl +
                 "        pass" + nl +
-                "    time.sleep(3)" + nl
+                "    time.sleep(2)" + nl
             )
             try:
                 est_proc = subprocess.Popen(

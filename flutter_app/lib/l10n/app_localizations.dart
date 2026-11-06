@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -236,7 +237,34 @@ class AppLocalizations {
   /// Helper: access localized string by key (for dynamic lookups).
   String get(String key) => _tr(key);
 
+  static Map<String, String>? _cachedEn;
+
+  static Map<String, String> _getCachedEn() {
+    if (_cachedEn != null && _cachedEn!.isNotEmpty) return _cachedEn!;
+    final candidates = [
+      'assets/lang/en.json',
+      'flutter_app/assets/lang/en.json',
+      'c:/Users/Tweety/Desktop/vocal-pro/flutter_app/assets/lang/en.json',
+    ];
+    for (final p in candidates) {
+      try {
+        final f = File(p);
+        if (f.existsSync()) {
+          final decoded = jsonDecode(f.readAsStringSync());
+          _cachedEn = Map<String, String>.from(decoded);
+          return _cachedEn!;
+        }
+      } catch (_) {}
+    }
+    _cachedEn = {};
+    return _cachedEn!;
+  }
+
   /// Lookup from context.
-  static AppLocalizations instance(BuildContext context) =>
-      Localizations.of(context, AppLocalizations)!;
+  static AppLocalizations instance(BuildContext context) {
+    final loc = Localizations.of<AppLocalizations>(context, AppLocalizations);
+    if (loc != null) return loc;
+    final fallback = _getCachedEn();
+    return AppLocalizations(const Locale('en'), fallback, fallback);
+  }
 }

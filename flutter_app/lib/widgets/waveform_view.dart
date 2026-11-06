@@ -170,6 +170,10 @@ class _WaveformViewState extends State<WaveformView> {
             final pos = details.localPosition.dx / width * widget.durationSec;
             widget.onSeek?.call(pos.clamp(0, widget.durationSec));
           },
+          onHorizontalDragUpdate: (details) {
+            final pos = details.localPosition.dx / width * widget.durationSec;
+            widget.onSeek?.call(pos.clamp(0, widget.durationSec));
+          },
           child: CustomPaint(
             size: Size(width, height),
             painter: _WaveformPainter(

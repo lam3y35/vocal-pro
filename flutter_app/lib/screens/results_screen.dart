@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:typed_data';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import '../theme.dart';
 import '../widgets/cards.dart';
 import '../services/api_service.dart';
@@ -28,6 +31,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
   bool _isPlaying = false;
   double _previewPos = 0;
   Timer? _previewTimer;
+  final AudioPlayer _player = AudioPlayer();
+  String? _playingStemPath;
 
   static const _stemColors = [
     Color(0xFF7C3AED),
@@ -42,11 +47,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
   void initState() {
     super.initState();
     _loadOutputs();
+    _player.onPlayerComplete.listen((_) {
+      if (mounted) _stopPreview();
+    });
   }
 
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _player.dispose();
     super.dispose();
   }
 
@@ -64,6 +73,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   }
 
   Future<void> _selectFolder(String folderName) async {
+    _stopPreview();
     setState(() {
       _selectedFolder = folderName;
       _stems = [];
@@ -102,16 +112,22 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final l10n = AppLocalizations.instance(context);
     setState(() => _isPreviewing = true);
     try {
-      await widget.api.stemPreview(
+      final audioBytes = await widget.api.stemPreview(
         folderName: _selectedFolder!,
         volumes: _stemVolumes,
         masterVolume: _masterVolume,
       );
+      if (audioBytes.isNotEmpty) {
+        await _player.stop();
+        await _player.play(BytesSource(Uint8List.fromList(audioBytes)));
+      }
+      if (!mounted) return;
       setState(() {
         _isPreviewing = false;
         _isPlaying = true;
         _previewPos = 0;
       });
+      _previewTimer?.cancel();
       _previewTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
         if (!mounted) return;
         setState(() {
@@ -123,18 +139,42 @@ class _ResultsScreenState extends State<ResultsScreen> {
         });
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() => _isPreviewing = false);
-      if (mounted) _showSnack(l10n.error, e.toString(), AppColors.error);
+      _showSnack(l10n.error, e.toString(), AppColors.error);
     }
   }
 
   void _stopPreview() {
     _previewTimer?.cancel();
-    setState(() {
-      _isPlaying = false;
-      _isPreviewing = false;
-      _previewPos = 0;
-    });
+    _player.stop();
+    if (mounted) {
+      setState(() {
+        _isPlaying = false;
+        _isPreviewing = false;
+        _previewPos = 0;
+        _playingStemPath = null;
+      });
+    }
+  }
+
+  Future<void> _togglePlayStem(String path) async {
+    if (_playingStemPath == path) {
+      _stopPreview();
+      return;
+    }
+    _stopPreview();
+    try {
+      await _player.play(DeviceFileSource(path));
+      if (mounted) {
+        setState(() {
+          _playingStemPath = path;
+          _isPlaying = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) _showSnack('Error', e.toString(), AppColors.error);
+    }
   }
 
   Future<void> _exportMix() async {
@@ -487,11 +527,55 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     Text('${s.sizeMb.toStringAsFixed(1)} MB', style: AppTextStyles.caption(context)),
                     const SizedBox(width: 8),
                     Tooltip(
+                      message: _playingStemPath == s.path ? l10n.stop : l10n.play,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () => _togglePlayStem(s.path),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: (_playingStemPath == s.path ? AppColors.warning : AppColors.accentPurple).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: (_playingStemPath == s.path ? AppColors.warning : AppColors.accentPurple).withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _playingStemPath == s.path ? Icons.stop_rounded : Icons.play_arrow_rounded,
+                                  size: 13,
+                                  color: _playingStemPath == s.path ? AppColors.warning : AppColors.accentPurple,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  _playingStemPath == s.path ? l10n.stop : l10n.play,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: _playingStemPath == s.path ? AppColors.warning : AppColors.accentPurple,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Tooltip(
                       message: l10n.openFileLocation,
                       child: Material(
                         color: Colors.transparent,
                         child: InkWell(
-                          onTap: () => _showSnack(l10n.open, s.path, AppColors.info),
+                          onTap: () {
+                            try {
+                              OpenFilex.open(s.path);
+                            } catch (_) {
+                              _showSnack(l10n.open, s.path, AppColors.info);
+                            }
+                          },
                           borderRadius: BorderRadius.circular(6),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),

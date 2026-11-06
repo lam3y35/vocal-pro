@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import '../controllers/separation_controller.dart';
 import '../controllers/job_manager.dart';
 import '../theme.dart';
@@ -272,11 +273,29 @@ class _SeparationScreenState extends State<SeparationScreen>
                 // New Job tab — full configuration + progress
                 Padding(
                   padding: const EdgeInsets.all(32),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        FileCard(ctrl: _ctrl),
+                  child: DropTarget(
+                    onDragDone: (details) {
+                      const supportedExts = {
+                        'mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac', 'wma', 'aiff',
+                        'mp4', 'mkv', 'avi', 'mov', 'flv', 'webm', 'm4v', '3gp', 'wmv',
+                      };
+                      for (final file in details.files) {
+                        final rawPath = file.path;
+                        var rawName = file.name;
+                        if (rawName.isEmpty) {
+                          rawName = rawPath.split(RegExp(r'[/\]')).last;
+                        }
+                        final ext = rawName.contains('.') ? rawName.split('.').last.toLowerCase() : '';
+                        if (supportedExts.contains(ext)) {
+                          _ctrl.addFileFromDrop(rawPath, rawName);
+                        }
+                      }
+                    },
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FileCard(ctrl: _ctrl),
                         const SizedBox(height: 16),
                         ModelCard(ctrl: _ctrl),
                         const SizedBox(height: 16),
@@ -298,6 +317,7 @@ class _SeparationScreenState extends State<SeparationScreen>
                       ],
                     ),
                   ),
+                ),
                 ),
 
                 // Job tabs — each shows progress for a single job
@@ -659,6 +679,9 @@ class _RunCardWrapper extends StatelessWidget {
 
   Widget _buildWorkflowDetails(BuildContext context) {
     final elapsed = SeparationController.formatDuration(ctrl.elapsedSeconds);
+    final etaStr = ctrl.etaSeconds > 0
+        ? SeparationController.formatDuration(ctrl.etaSeconds)
+        : (ctrl.elapsedSeconds < 3 ? 'Estimating...' : '--');
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -670,6 +693,8 @@ class _RunCardWrapper extends StatelessWidget {
       child: Row(
         children: [
           _detailChip(context, Icons.timer_outlined, 'Elapsed', elapsed),
+          const SizedBox(width: 14),
+          _detailChip(context, Icons.schedule_rounded, 'Remaining', etaStr),
           const Spacer(),
           if (ctrl.currentFileIndex >= 0)
             _detailChip(

@@ -118,6 +118,7 @@ def main() -> int:
                     "file_paths": [upload_path],  # API expects file_paths, not file_ids
                     "model_name": "mdx_q",
                     "output_format": "wav",
+                    "save_bg": True,
                 },
             )
             data = r.json()
@@ -159,9 +160,15 @@ def main() -> int:
     try:
         r = client.get(f"{SERVER_URL}/api/outputs")
         folders = r.json().get("outputs", [])
-        if folders:
-            folder_name = folders[0].get("name", "")
-            r2 = client.get(f"{SERVER_URL}/api/outputs/{folder_name}/stems")
+        target_folder = ""
+        for f in folders:
+            if "test_e2e_input" in f.get("name", ""):
+                target_folder = f.get("name", "")
+                break
+        if not target_folder and folders:
+            target_folder = folders[0].get("name", "")
+        if target_folder:
+            r2 = client.get(f"{SERVER_URL}/api/outputs/{target_folder}/stems")
             data = r2.json()
             stems_ok = r2.status_code == 200 and len(data.get("stems", [])) >= 2
     except Exception:
@@ -191,6 +198,12 @@ def main() -> int:
         try:
             log_path.unlink(missing_ok=True)
         except (PermissionError, OSError):
+            pass
+    import shutil
+    for out_sub in (PROJECT_DIR / "output_vocals").glob("*test_e2e_input*"):
+        try:
+            shutil.rmtree(out_sub, ignore_errors=True)
+        except Exception:
             pass
 
     # ── Summary ───────────────────────────────────────────────────

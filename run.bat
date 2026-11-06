@@ -83,11 +83,20 @@ if exist "flutter_app\build\windows\x64\runner\Debug\vocal_pro_flutter.exe" (
 )
 
 :: Fall back to flutter run
+set "FLUTTER_CMD=flutter"
 where flutter >nul 2>&1
-if %errorlevel% equ 0 (
+if %errorlevel% neq 0 (
+    if exist "C:\src\flutter\bin\flutter.bat" (
+        set "FLUTTER_CMD=C:\src\flutter\bin\flutter.bat"
+    ) else (
+        set "FLUTTER_CMD="
+    )
+)
+
+if defined FLUTTER_CMD (
     echo         Launching via Flutter SDK...
     cd flutter_app
-    start "" cmd /c "C:\src\flutter\bin\flutter.bat run -d windows"
+    start "" cmd /c "%FLUTTER_CMD% run -d windows"
     cd ..
     goto :launched
 )

@@ -24,6 +24,11 @@ class SeparationController extends ChangeNotifier {
   SeparationController({required this.api, AppLocalizations? l10n})
       : _statusText = l10n?.readyLog ?? 'Ready' {
     _wsSub = api.onProgress.listen(_onProgressEvent);
+    _audioCompleteSub = _audioPlayer.onPlayerComplete.listen((_) {
+      if (!_disposed) {
+        stopPlayback();
+      }
+    });
   }
 
   // ── Throttle: limit UI rebuilds during rapid progress updates ──
@@ -70,11 +75,13 @@ class SeparationController extends ChangeNotifier {
 
   bool _disposed = false;
   StreamSubscription<ProgressEvent>? _wsSub;
+  StreamSubscription? _audioCompleteSub;
 
   @override
   void dispose() {
     _disposed = true;
     _wsSub?.cancel();
+    _audioCompleteSub?.cancel();
     _playbackTimer?.cancel();
     _workflowTimer?.cancel();
     _pollTimer?.cancel();
@@ -97,21 +104,41 @@ class SeparationController extends ChangeNotifier {
       }
     }
     notifyListeners();
-    if (platformFiles.length == 1 && platformFiles.first.path != null) {
-      analyzeFile(platformFiles.first.path!);
+    if (_files.isNotEmpty && _audioSrcPath == null) {
+      analyzeFile(_files.first.path);
     }
   }
 
-  void addFileFromDrop(String path, String name) {
+  void addFileFromDrop(String rawPath, String rawName) {
+    var path = rawPath.trim();
+    if (path.startsWith('file://')) {
+      try {
+        path = Uri.parse(path).toFilePath();
+      } catch (_) {
+        path = path.replaceFirst(RegExp(r'^file:///?'), '');
+      }
+    }
+    try {
+      path = Uri.decodeFull(path);
+    } catch (_) {}
+
+    var name = rawName.trim();
+    if (name.isEmpty || name.contains('/') || name.contains(r'\')) {
+      name = path.split(RegExp(r'[/\\]')).last;
+    }
+    try {
+      name = Uri.decodeFull(name);
+    } catch (_) {}
+
     if (!_files.any((q) => q.path == path)) {
       _files.add(QueuedFile(path: path, name: name));
-      if (_files.length == 1) analyzeFile(path);
+      if (_audioSrcPath == null) analyzeFile(path);
       notifyListeners();
     }
   }
 
   void removeFile(int index) {
-    _files.removeAt(index);
+    final removed = _files.removeAt(index);
     // Clean up _fileStates for shifted indices
     _fileStates.remove(index);
     final shifted = <int, dynamic>{};
@@ -129,6 +156,11 @@ class SeparationController extends ChangeNotifier {
       _waveformData = null;
       _detectedBpm = null;
       _detectedKey = null;
+      _audioSrcPath = null;
+      stopPlayback();
+    } else if (_audioSrcPath == removed.path) {
+      stopPlayback();
+      analyzeFile(_files.first.path);
     }
     notifyListeners();
   }
@@ -142,6 +174,7 @@ class SeparationController extends ChangeNotifier {
     _downloadStatus = '';
     _fileStates.clear();
     _audioSrcPath = null;
+    _resetRateSamples();
     stopPlayback();
     notifyListeners();
   }
@@ -181,8 +214,8 @@ class SeparationController extends ChangeNotifier {
           _waveformData = List<double>.from(analysis['waveform']);
         }
         _durationSec = (analysis['full_duration_sec'] as num?)?.toDouble() ?? 0;
-        // Set audio source path for playback
-        _audioSrcPath = path;
+        // Set audio source path for playback (use extracted preview audio for videos if available)
+        _audioSrcPath = (analysis['audio_path'] as String?) ?? path;
         notifyListeners();
       }
     } catch (_) {}
@@ -265,11 +298,19 @@ class SeparationController extends ChangeNotifier {
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   String? _audioSrcPath;
+  String? get activeAudioPath => _audioSrcPath;
   double _currentPosSec = 0;
   double get currentPosSec => _currentPosSec;
   bool _isPlaying = false;
   bool get isPlaying => _isPlaying;
   Timer? _playbackTimer;
+
+  void selectFileForPreview(int index) {
+    if (index >= 0 && index < _files.length) {
+      stopPlayback();
+      analyzeFile(_files[index].path);
+    }
+  }
 
   void togglePlayback() {
     _isPlaying ? pausePlayback() : startPlayback();
@@ -284,13 +325,16 @@ class SeparationController extends ChangeNotifier {
 
     // Use real audio file playback
     try {
-      await _audioPlayer.stop();
-      await _audioPlayer.play(DeviceFileSource(_audioSrcPath!));
-      _isPlaying = true;
-      // Seek to current position if not at start
-      if (_currentPosSec > 0) {
-        await _audioPlayer.seek(Duration(milliseconds: (_currentPosSec * 1000).toInt()));
+      if (_audioPlayer.state == PlayerState.paused && _currentPosSec > 0 && _currentPosSec < _durationSec) {
+        await _audioPlayer.resume();
+      } else {
+        await _audioPlayer.stop();
+        await _audioPlayer.play(DeviceFileSource(_audioSrcPath!));
+        if (_currentPosSec > 0) {
+          await _audioPlayer.seek(Duration(milliseconds: (_currentPosSec * 1000).toInt()));
+        }
       }
+      _isPlaying = true;
     } catch (_) {
       // Fallback: simulated timer if real playback fails
       _isPlaying = true;
@@ -304,36 +348,32 @@ class SeparationController extends ChangeNotifier {
       if (_disposed) return;
       _audioPlayer.getCurrentPosition().then((pos) {
         if (_disposed) return;
-        _currentPosSec = (pos?.inMilliseconds ?? (_currentPosSec * 1000).toInt()) / 1000.0;
+        if (pos != null) {
+          _currentPosSec = pos.inMilliseconds / 1000.0;
+        } else {
+          _currentPosSec += 0.2;
+        }
         if (_currentPosSec >= _durationSec) {
-          _currentPosSec = _durationSec;
-          pausePlayback();
+          stopPlayback();
         }
         notifyListeners();
       }).catchError((_) {
         // Fallback increment if position query fails
         _currentPosSec += 0.2;
         if (_currentPosSec >= _durationSec) {
-          _currentPosSec = _durationSec;
-          pausePlayback();
+          stopPlayback();
         }
         notifyListeners();
       });
-    });
-
-    // Listen for player completion
-    _audioPlayer.onPlayerComplete.listen((_) {
-      if (!_disposed) {
-        _currentPosSec = _durationSec;
-        pausePlayback();
-      }
     });
   }
 
   Future<void> pausePlayback() async {
     _playbackTimer?.cancel();
     _isPlaying = false;
-    await _audioPlayer.pause();
+    try {
+      await _audioPlayer.pause();
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -341,15 +381,17 @@ class SeparationController extends ChangeNotifier {
     _playbackTimer?.cancel();
     _isPlaying = false;
     _currentPosSec = 0;
-    await _audioPlayer.stop();
+    try {
+      await _audioPlayer.stop();
+    } catch (_) {}
     notifyListeners();
   }
 
   Future<void> seekTo(double pos) async {
     _currentPosSec = pos.clamp(0, _durationSec);
-    if (_isPlaying) {
+    try {
       await _audioPlayer.seek(Duration(milliseconds: (_currentPosSec * 1000).toInt()));
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -452,9 +494,9 @@ class SeparationController extends ChangeNotifier {
   double get overlap => _overlap;
   set overlap(double v) { _overlap = v.clamp(0.1, 8.0); notifyListeners(); }
 
-  int _shifts = 1;
+  int _shifts = 0;
   int get shifts => _shifts;
-  set shifts(int v) { _shifts = v.clamp(1, 10); notifyListeners(); }
+  set shifts(int v) { _shifts = v.clamp(0, 10); notifyListeners(); }
 
   double _gateThresholdDb = -55.0;
   double get gateThresholdDb => _gateThresholdDb;
@@ -534,60 +576,91 @@ class SeparationController extends ChangeNotifier {
       ? DateTime.now().difference(_processingStartTime!).inMilliseconds / 1000.0
       : 0.0;
 
-  /// Rolling-average ETA based on real progress updates.
+  /// Rolling-average and exponential-moving-average ETA tracking.
   ///
-  /// Collects (timestamp, progress) samples from real WebSocket/HTTP progress
-  /// updates and computes the average processing rate (seconds per unit of
-  /// progress) over the last few samples. This smooths out the jitter from
-  /// estimated progress updates and creep, giving a stable ETA that gracefully
-  /// converges to the true remaining time.
-  ///
-  /// Samples are stored in [_rateSamples] and reset on each new job.
+  /// Combines global cumulative rate (elapsed / progress) and recent window rate
+  /// with exponential smoothing (EMA) and continuous monotonic wall-clock countdown
+  /// between ticks. This prevents wild fluctuations when chunk processing times vary,
+  /// while ensuring the countdown ticks down smoothly and accurately.
   final List<_RateSample> _rateSamples = [];
-  static const int _maxRateSamples = 5;
+  static const int _maxRateSamples = 8;
+  double? _smoothedEtaSeconds;
+  DateTime? _lastEtaTickTime;
 
   double get estimatedTotalSeconds {
-    final elapsed = elapsedSeconds;
-    if (elapsed < 5) return 0.0; // Too early — no meaningful estimate yet
-
-    // If we have enough real samples, use rolling average
-    if (_rateSamples.length >= 2) {
-      final first = _rateSamples.first;
-      final last = _rateSamples.last;
-      final dt = last.timestamp.difference(first.timestamp).inMilliseconds / 1000.0;
-      final dp = last.progress - first.progress;
-      if (dp > 0.01 && dt > 2) {
-        final rate = dt / dp; // seconds per unit of progress
-        final remaining = 1.0 - last.progress;
-        return elapsed + rate * remaining;
-      }
+    if (!_isProcessing) return 0.0;
+    final eta = etaSeconds;
+    if (eta > 0) {
+      return elapsedSeconds + eta;
     }
-
-    // Fallback: use the instantaneous rate but only if progress is meaningful
-    if (_progress > 0.05) {
-      return elapsed / _progress;
+    if (_progress > 0.05 && elapsedSeconds > 2.0) {
+      return elapsedSeconds / _progress;
     }
     return 0.0;
   }
 
   double get etaSeconds {
-    final est = estimatedTotalSeconds;
-    return est > 0 ? (est - elapsedSeconds).clamp(0, double.infinity) : 0.0;
+    if (!_isProcessing || _progress >= 1.0) return 0.0;
+    if (_smoothedEtaSeconds != null && _smoothedEtaSeconds! > 0) {
+      return _smoothedEtaSeconds!;
+    }
+    // Fallback if early in processing
+    if (_progress > 0.05 && elapsedSeconds > 2.0) {
+      return (elapsedSeconds / _progress) * (1.0 - _progress);
+    }
+    return 0.0;
   }
 
   void _addRateSample(double progress) {
-    // Only record real updates (≥2% change from last sample) to avoid
-    // adding noise from creep or tiny estimated updates.
     if (_rateSamples.isNotEmpty) {
       final last = _rateSamples.last.progress;
-      if ((progress - last).abs() < 0.02) return;
-      // Ignore regressions (shouldn't happen, but handle it)
+      if ((progress - last).abs() < 0.01) return;
       if (progress < last) return;
     }
     _rateSamples.add(_RateSample(DateTime.now(), progress));
     if (_rateSamples.length > _maxRateSamples) {
       _rateSamples.removeAt(0);
     }
+  }
+
+  void _updateSmoothedEta(double currentProgress) {
+    if (currentProgress >= 1.0) {
+      _smoothedEtaSeconds = 0.0;
+      _lastEtaTickTime = DateTime.now();
+      return;
+    }
+    final elapsed = elapsedSeconds;
+    if (elapsed < 2.0 || currentProgress < 0.02) {
+      return;
+    }
+
+    // 1. Global cumulative rate (seconds per unit of progress)
+    final globalRate = elapsed / currentProgress;
+
+    // 2. Rolling window rate if we have at least 2 samples
+    double effectiveRate = globalRate;
+    if (_rateSamples.length >= 2) {
+      final first = _rateSamples.first;
+      final last = _rateSamples.last;
+      final dt = last.timestamp.difference(first.timestamp).inMilliseconds / 1000.0;
+      final dp = last.progress - first.progress;
+      if (dp > 0.01 && dt > 1.0) {
+        final windowRate = dt / dp;
+        // Blend global rate (70% weight for stability) with window rate (30% weight for responsiveness)
+        effectiveRate = 0.70 * globalRate + 0.30 * windowRate;
+      }
+    }
+
+    final remainingFraction = (1.0 - currentProgress).clamp(0.0, 1.0);
+    final rawEta = effectiveRate * remainingFraction;
+
+    if (_smoothedEtaSeconds == null) {
+      _smoothedEtaSeconds = rawEta;
+    } else {
+      // Exponential moving average: 80% previous smoothed, 20% new observation
+      _smoothedEtaSeconds = (_smoothedEtaSeconds! * 0.8) + (rawEta * 0.2);
+    }
+    _lastEtaTickTime = DateTime.now();
   }
 
   // Internal tick timer to refresh elapsed/ETA display
@@ -606,6 +679,8 @@ class SeparationController extends ChangeNotifier {
     _lastProgressTime = DateTime.now();
     _lastRealProgress = 0.0;
     _displayedProgress = 0.0;
+    _smoothedEtaSeconds = null;
+    _lastEtaTickTime = null;
 
     _workflowTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (_disposed) {
@@ -628,6 +703,18 @@ class SeparationController extends ChangeNotifier {
           _displayedProgress = (_displayedProgress + 0.01).clamp(0.0, maxDisplay);
           _progress = _displayedProgress;
         }
+
+        // Monotonic wall-clock countdown for smoothed ETA
+        if (_smoothedEtaSeconds != null && _smoothedEtaSeconds! > 0) {
+          final now = DateTime.now();
+          if (_lastEtaTickTime != null) {
+            final dtSec = now.difference(_lastEtaTickTime!).inMilliseconds / 1000.0;
+            if (dtSec > 0) {
+              _smoothedEtaSeconds = (_smoothedEtaSeconds! - dtSec).clamp(1.0, double.infinity);
+            }
+          }
+          _lastEtaTickTime = now;
+        }
       }
 
       _throttledNotify(); // refresh elapsed/ETA display and progress
@@ -640,6 +727,8 @@ class SeparationController extends ChangeNotifier {
     _pollTimer?.cancel();
     _pollTimer = null;
     _pollingJobId = null;
+    _smoothedEtaSeconds = null;
+    _lastEtaTickTime = null;
   }
 
   /// Start HTTP polling for a job as a fallback when WebSocket events
@@ -704,6 +793,7 @@ class SeparationController extends ChangeNotifier {
                 _displayedProgress = tp;
                 _lastProgressTime = DateTime.now();
                 _addRateSample(tp);
+                _updateSmoothedEta(tp);
               }
               _progress = _displayedProgress;
               final st = job['status_text'] as String? ?? '';
@@ -761,8 +851,9 @@ class SeparationController extends ChangeNotifier {
     switch (event.type) {
       case ProgressType.progress:
         _lastRealProgress = (event.percent ?? 0) / 100;
-        // Record this real update for the rolling-average ETA
+        // Record this real update for the rolling-average and EMA ETA
         _addRateSample(_lastRealProgress);
+        _updateSmoothedEta(_lastRealProgress);
         // Don't drop displayed progress below where creep has pushed it,
         // to avoid a jarring backward jump when a real update arrives.
         if (_lastRealProgress > _displayedProgress) {
@@ -774,7 +865,8 @@ class SeparationController extends ChangeNotifier {
         _detectPhase(event.message ?? '');
         // Track per-file progress if indexed
         if (fi != null) {
-          _fileStates[fi] = (event.percent ?? 0) / 100;
+          final fileProg = (event.filePercent ?? event.percent ?? 0) / 100;
+          _fileStates[fi] = fileProg;
         }
         _logLines.add(event.message ?? '');
         break;
@@ -869,6 +961,7 @@ class SeparationController extends ChangeNotifier {
   /// Sets processing state and starts the workflow timer.
   void prepareForJob() {
     if (_files.isEmpty || _isProcessing) return;
+    stopPlayback();
     _isProcessing = true;
     _progress = 0;
     _resetRateSamples();
@@ -891,6 +984,8 @@ class SeparationController extends ChangeNotifier {
 
   void _resetRateSamples() {
     _rateSamples.clear();
+    _smoothedEtaSeconds = null;
+    _lastEtaTickTime = null;
   }
 
   /// Report a job error (API failure, server not running, etc.).
@@ -930,6 +1025,13 @@ class SeparationController extends ChangeNotifier {
         enableSfxSep: _enableSfxSep,
         videoOutputMode: _songMode ? 'audio_only' : _videoOutputMode,
         trimSilence: _songMode ? true : _trimSilence,
+        segment: _segment,
+        overlap: _overlap,
+        shifts: _shifts,
+        gateThresholdDb: _gateThresholdDb,
+        gateFloorDb: _gateFloorDb,
+        denoiseStrength: _denoiseStrength,
+        minVocalDuration: _minVocalDuration,
       );
     } catch (e) {
       if (_disposed) return;
@@ -974,7 +1076,7 @@ class SeparationController extends ChangeNotifier {
     Map<String, double> tempVals = {
       'segment': 6.0,
       'overlap': 2.0,
-      'shifts': 1,
+      'shifts': 0,
       'gate_threshold_db': -55.0,
       'gate_floor_db': -60.0,
       'denoise_strength': 0.55,
@@ -995,7 +1097,7 @@ class SeparationController extends ChangeNotifier {
                 children: [
                   _dialogSlider(context, 'Segment (sec)', tempVals, 'segment', 2.0, 60.0, false, setDialogState),
                   _dialogSlider(context, 'Overlap (sec)', tempVals, 'overlap', 0.1, 8.0, false, setDialogState),
-                  _dialogSlider(context, 'Shifts', tempVals, 'shifts', 1, 10, true, setDialogState),
+                  _dialogSlider(context, 'Shifts (0 = Fastest, 1-2 = High Quality)', tempVals, 'shifts', 0, 10, true, setDialogState),
                   const SizedBox(height: 4),
                   const Divider(color: AppColors.glassBorder, height: 16),
                   Text('Gate & Noise', style: AppTextStyles.label(context)),

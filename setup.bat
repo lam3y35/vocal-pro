@@ -44,6 +44,15 @@ echo.
 echo  [2/5] Installing Python dependencies...
 call venv\Scripts\activate.bat
 
+:: Detect NVIDIA GPU for CUDA acceleration
+nvidia-smi >nul 2>&1
+if %errorlevel% equ 0 (
+    echo         NVIDIA GPU detected. Installing PyTorch with CUDA acceleration...
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121 --quiet
+) else (
+    echo         No NVIDIA GPU detected. Installing CPU PyTorch...
+)
+
 if exist api_server\requirements.txt (
     pip install -r api_server\requirements.txt --quiet
     if %errorlevel% neq 0 (
@@ -69,11 +78,20 @@ echo         Python dependencies installed.
 :: -- 3) Build Flutter app -------------------------------------------
 echo.
 echo  [3/5] Building Flutter frontend (if Flutter is installed)...
+set "FLUTTER_CMD=flutter"
 where flutter >nul 2>&1
-if %errorlevel% equ 0 (
+if %errorlevel% neq 0 (
+    if exist "C:\src\flutter\bin\flutter.bat" (
+        set "FLUTTER_CMD=C:\src\flutter\bin\flutter.bat"
+    ) else (
+        set "FLUTTER_CMD="
+    )
+)
+
+if defined FLUTTER_CMD (
     cd flutter_app
-    echo         Running flutter build windows --release...
-    flutter build windows --release 2>&1
+    echo         Running %FLUTTER_CMD% build windows --release...
+    call %FLUTTER_CMD% build windows --release 2>&1
     if %errorlevel% neq 0 (
         echo.
         echo  [WARNING] Flutter build failed.

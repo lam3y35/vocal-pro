@@ -487,6 +487,7 @@ enum WsConnectionState { disconnected, connecting, connected, reconnecting }
 class ProgressEvent {
   final ProgressType type;
   final double? percent;
+  final double? filePercent;
   final String? message;
   final String? outputPath;
   final int? index;
@@ -497,6 +498,7 @@ class ProgressEvent {
   ProgressEvent({
     required this.type,
     this.percent,
+    this.filePercent,
     this.message,
     this.outputPath,
     this.index,
@@ -509,9 +511,10 @@ class ProgressEvent {
     return ProgressEvent(
       type: _parseType(json['type']),
       percent: (json['percent'] as num?)?.toDouble(),
+      filePercent: (json['file_percent'] as num?)?.toDouble(),
       message: json['message'] as String?,
       outputPath: json['output_path'] as String?,
-      index: json['index'] as int?,
+      index: (json['index'] ?? json['file_index']) as int?,
       total: json['total'] as int?,
       filename: json['filename'] as String?,
       jobId: json['job_id'] as String?,
