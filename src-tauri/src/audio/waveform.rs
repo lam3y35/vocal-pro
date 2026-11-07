@@ -1,7 +1,7 @@
-use std::path::Path;
-use serde::{Deserialize, Serialize};
 use crate::audio::decode::{decode_audio_file, DecodedAudio};
 use crate::error::AppResult;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WaveformSummary {
@@ -11,7 +11,10 @@ pub struct WaveformSummary {
     pub channels: usize,
 }
 
-pub fn compute_waveform_from_decoded(decoded: &DecodedAudio, num_buckets: usize) -> WaveformSummary {
+pub fn compute_waveform_from_decoded(
+    decoded: &DecodedAudio,
+    num_buckets: usize,
+) -> WaveformSummary {
     let mono = decoded.to_mono();
     let target = num_buckets.max(1);
 

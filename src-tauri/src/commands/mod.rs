@@ -8,14 +8,13 @@ use serde_json::Value;
 use crate::audio::export::{export_separate_custom_stems, export_stem_mix};
 use crate::audio::mixer::{discover_stems_in_folder, LiveStemMixer, MixerSnapshot};
 use crate::audio::waveform::{compute_waveform_8000, WaveformSummary};
-use crate::db::{
-    AppDatabase, DownloadHistoryEntry, OutputFolderEntry, SeparationHistoryEntry,
-};
+use crate::db::{AppDatabase, DownloadHistoryEntry, OutputFolderEntry, SeparationHistoryEntry};
 use crate::error::{AppError, AppResult};
 use crate::models::{list_supported_models, ModelInfo};
 use crate::system::{
-    create_desktop_shortcut, detect_system_hardware, download_media_url, export_diagnostic_bundle,
-    get_changelog_releases, register_file_associations, ChangelogRelease, HardwareProfile,
+    create_desktop_shortcut, detect_system_hardware_with_mode, download_media_url,
+    export_diagnostic_bundle, get_changelog_releases, register_file_associations, ChangelogRelease,
+    HardwareProfile,
 };
 use crate::worker::job_queue::JobRecord;
 use crate::worker::protocol::{HostCommandPayload, JobOptions, WorkerEvent};
@@ -59,6 +58,11 @@ impl AppContext {
         let _ = db.migrate_legacy(&app_data_dir, &extra_cfgs, &[default_outputs_dir]);
 
         let worker = WorkerSupervisor::new(python_bin, worker_pythonpath, fast_test_model);
+        if let Ok(resumable) = db.load_resumable_jobs() {
+            if !resumable.is_empty() {
+                worker.restore_jobs(resumable);
+            }
+        }
 
         Ok(Self {
             app_data_dir,
@@ -94,6 +98,32 @@ impl AppContext {
             .and_then(|n| n.to_str())
             .unwrap_or("audio")
             .to_string();
+
+        // Persist initial queued record in SQLite so jobs survive restarts (Workstream E)
+        let initial_rec = JobRecord {
+            job_id: job_id.clone(),
+            input_path: input_path.clone(),
+            output_dir: output_dir.clone(),
+            options: options.clone(),
+            status: crate::worker::job_queue::JobStatus::Queued,
+            phase: "queued".to_string(),
+            percent: 0.0,
+            segment_index: 0,
+            segment_total: 1,
+            sub_model_index: 0,
+            sub_model_total: 1,
+            eta_s: None,
+            message: "Queued".to_string(),
+            stems: Vec::new(),
+            comparison_samples: Vec::new(),
+            error_code: None,
+            error_message: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            elapsed_s: None,
+            worker_slot: None,
+            priority: "normal".to_string(),
+        };
+        let _ = self.db.upsert_job_record(&initial_rec);
 
         let ev = self
             .worker
@@ -136,6 +166,9 @@ impl AppContext {
                 )?;
             }
             WorkerEvent::JobCancelled { .. } => {
+                if let Some(rec) = self.worker.get_job(&job_id) {
+                    let _ = self.db.upsert_job_record(&rec);
+                }
                 self.db.record_separation_history(
                     &[input_path],
                     &model_name,
@@ -145,7 +178,15 @@ impl AppContext {
                     None,
                 )?;
             }
-            WorkerEvent::JobError { code, message, detail, .. } => {
+            WorkerEvent::JobError {
+                code,
+                message,
+                detail,
+                ..
+            } => {
+                if let Some(rec) = self.worker.get_job(&job_id) {
+                    let _ = self.db.upsert_job_record(&rec);
+                }
                 self.db.record_separation_history(
                     &[input_path],
                     &model_name,
@@ -163,13 +204,34 @@ impl AppContext {
             _ => {}
         }
 
-        self.worker
+        let final_rec = self
+            .worker
             .get_job(&job_id)
-            .ok_or_else(|| AppError::System(format!("Job {} not found in queue", job_id)))
+            .ok_or_else(|| AppError::System(format!("Job {} not found in queue", job_id)))?;
+        let _ = self.db.upsert_job_record(&final_rec);
+        Ok(final_rec)
     }
 
     pub fn cancel_job(&self, job_id: &str) -> AppResult<()> {
         self.worker.cancel_job(job_id)
+    }
+
+    pub fn pause_queue(&self) -> WorkerHealth {
+        self.worker.pause_queue();
+        self.worker.health()
+    }
+
+    pub fn resume_queue(&self) -> WorkerHealth {
+        self.worker.resume_queue();
+        self.worker.health()
+    }
+
+    pub fn set_job_priority(&self, job_id: &str, priority: &str) -> Option<JobRecord> {
+        self.worker.set_job_priority(job_id, priority)
+    }
+
+    pub fn reorder_job(&self, job_id: &str, new_index: usize) -> bool {
+        self.worker.reorder_job(job_id, new_index)
     }
 
     pub fn list_jobs(&self) -> Vec<JobRecord> {
@@ -262,6 +324,43 @@ impl AppContext {
             }),
             other => Err(AppError::System(format!(
                 "Unexpected worker event for stem_to_midi: {:?}",
+                other
+            ))),
+        }
+    }
+
+    pub async fn calibrate_hardware(&self, duration_s: f64) -> AppResult<Value> {
+        let ev = self
+            .worker
+            .request(HostCommandPayload::CalibrateHardware { duration_s })
+            .await?;
+
+        match ev {
+            WorkerEvent::CalibrationDone { calibration, .. } => {
+                let mut updates = HashMap::new();
+                updates.insert("hardware_calibration_json".to_string(), calibration.clone());
+                if let Some(jobs) = calibration
+                    .get("calibrated_max_concurrent_jobs")
+                    .and_then(|v| v.as_u64())
+                {
+                    self.worker.set_max_concurrent_workers(jobs as usize);
+                    updates.insert("max_concurrent_jobs".to_string(), Value::from(jobs));
+                }
+                let _ = self.db.update_settings(&updates);
+                Ok(calibration)
+            }
+            WorkerEvent::JobError {
+                code,
+                message,
+                detail,
+                ..
+            } => Err(AppError::Worker {
+                code,
+                message,
+                detail,
+            }),
+            other => Err(AppError::System(format!(
+                "Unexpected worker event for calibrate_hardware: {:?}",
                 other
             ))),
         }
@@ -397,6 +496,22 @@ impl AppContext {
         self.db.update_settings(updates)
     }
 
+    pub fn reset_setting_key(&self, key: &str) -> AppResult<Value> {
+        self.db.reset_setting_key(key)
+    }
+
+    pub fn reset_all_settings(&self) -> AppResult<HashMap<String, Value>> {
+        self.db.reset_settings_to_default()
+    }
+
+    pub fn export_settings_json(&self) -> AppResult<String> {
+        self.db.export_settings_json()
+    }
+
+    pub fn import_settings_json(&self, raw_json: &str) -> AppResult<HashMap<String, Value>> {
+        self.db.import_settings_json(raw_json)
+    }
+
     pub fn set_max_concurrent_jobs(&self, max_jobs: usize) -> AppResult<WorkerHealth> {
         self.worker.set_max_concurrent_workers(max_jobs);
         let mut updates = HashMap::new();
@@ -409,16 +524,47 @@ impl AppContext {
     }
 
     pub fn detect_hardware(&self) -> HardwareProfile {
+        let mode = self
+            .db
+            .get_all_settings()
+            .ok()
+            .and_then(|m| {
+                m.get("hardware_profile_mode")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "auto".to_string());
+        self.detect_hardware_with_mode(&mode)
+    }
+
+    pub fn detect_hardware_with_mode(&self, profile_mode: &str) -> HardwareProfile {
         let h = self.worker.health();
-        detect_system_hardware(&self.app_data_dir, h.cuda_available, h.gpu_name, h.vram_mb)
+        detect_system_hardware_with_mode(
+            &self.app_data_dir,
+            h.cuda_available,
+            h.gpu_name,
+            h.vram_mb,
+            profile_mode,
+        )
     }
 
     pub fn auto_optimize_for_hardware(&self) -> AppResult<HardwareProfile> {
-        let profile = self.detect_hardware();
+        self.auto_optimize_for_hardware_with_mode("auto")
+    }
+
+    pub fn auto_optimize_for_hardware_with_mode(
+        &self,
+        profile_mode: &str,
+    ) -> AppResult<HardwareProfile> {
+        let profile = self.detect_hardware_with_mode(profile_mode);
         self.worker
             .set_max_concurrent_workers(profile.recommended_max_concurrent_jobs as usize);
 
         let mut updates = HashMap::new();
+        updates.insert(
+            "hardware_profile_mode".to_string(),
+            Value::String(profile_mode.to_string()),
+        );
         updates.insert(
             "device".to_string(),
             Value::String(profile.recommended_device.clone()),
@@ -448,13 +594,22 @@ impl AppContext {
             Value::String(profile.recommended_preset.clone()),
         );
         updates.insert(
+            "fp16_inference".to_string(),
+            Value::Bool(profile.recommended_fp16),
+        );
+        updates.insert(
             "safe_mode".to_string(),
             Value::Bool(profile.recommended_safe_mode),
         );
         updates.insert(
-            "hardware_auto_optimize".to_string(),
-            Value::Bool(true),
+            "profile_changes_label".to_string(),
+            Value::String(profile.profile_changes_label.clone()),
         );
+        updates.insert(
+            "quality_impact_note".to_string(),
+            Value::String(profile.quality_impact_note.clone()),
+        );
+        updates.insert("hardware_auto_optimize".to_string(), Value::Bool(true));
         self.db.update_settings(&updates)?;
         Ok(profile)
     }

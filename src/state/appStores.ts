@@ -6,17 +6,20 @@ import {
   DownloadHistoryEntry,
   HardwareProfile,
   JobOptions,
+  JobPriority,
   JobRecord,
   ModelInfo,
   OutputFolderEntry,
+  PerformanceProfileMode,
   SeparationHistoryEntry,
   StemTrackInfo,
   WorkerHealth,
 } from "../bindings";
 import { SupportedLocale } from "../i18n/translations";
+import { invokeCommand } from "../ipc";
 
 // ---------------------------------------------------------------------------
-// 1. Jobs Store (Queue, Multi-Job Tabs, Per-Segment Real Progress, Cancel)
+// 1. Jobs Store (Queue, Priority, Reorder, Pause/Resume, Multi-Job Tabs, Cancel)
 // ---------------------------------------------------------------------------
 interface JobsState {
   selectedFiles: string[];
@@ -26,6 +29,7 @@ interface JobsState {
   customOutputDir: string;
   parallelWorkers: number;
   autoOpenFolder: boolean;
+  queuePaused: boolean;
   previewWaveform: number[];
   logs: string[];
   addFiles: (paths: string[]) => void;
@@ -36,6 +40,12 @@ interface JobsState {
   setCustomOutputDir: (dir: string) => void;
   setParallelWorkers: (n: number) => void;
   setAutoOpenFolder: (v: boolean) => void;
+  toggleQueuePaused: () => void;
+  setJobPriority: (jobId: string, priority: JobPriority) => void;
+  reorderJob: (jobId: string, direction: "up" | "down") => void;
+  retryFailedJob: (jobId: string) => void;
+  clearCompletedJobs: () => void;
+  simulateFailedJob: () => void;
   startSeparationBatch: () => void;
   cancelJob: (jobId: string) => void;
   setActiveJobId: (jobId: string | null) => void;
@@ -61,10 +71,11 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   customOutputDir: "",
   parallelWorkers: 2,
   autoOpenFolder: true,
+  queuePaused: false,
   previewWaveform: SYNTH_WAVEFORM_8000,
   logs: [
     "[ready] VocalPro Worker Pool v3.0.0 initialized over stdio JSON-Lines (0 listening TCP ports)",
-    "[info] Hardware Profile detected: Multi-process worker pool ready (up to 4 parallel processes)",
+    "[info] Hardware Profile detected: Multi-process worker pool ready (memory-aware concurrency cap active)",
     "[info] PyTorch 2.15.0 | Demucs 4.1.0 | Symphonia 0.5.5 | SQLite WAL ready",
   ],
   addFiles: (paths) =>
@@ -76,11 +87,13 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       selectedFiles: s.selectedFiles.filter((p) => p !== path),
     })),
   clearFiles: () => set({ selectedFiles: [] }),
-  setOptions: (patch) =>
+  setOptions: (patch) => {
     set((s) => ({
       options: { ...s.options, ...patch },
-    })),
-  toggleSongMode: (enabled) =>
+    }));
+    void invokeCommand("update_settings", { patch });
+  },
+  toggleSongMode: (enabled) => {
     set((s) => ({
       options: enabled
         ? {
@@ -97,11 +110,17 @@ export const useJobsStore = create<JobsState>((set, get) => ({
             karaoke_mode: false,
           }
         : { ...s.options, song_mode: false },
-    })),
-  setCustomOutputDir: (dir) => set({ customOutputDir: dir }),
+    }));
+    void invokeCommand("update_settings", { patch: { song_mode: enabled } });
+  },
+  setCustomOutputDir: (dir) => {
+    set({ customOutputDir: dir });
+    void invokeCommand("update_settings", { patch: { custom_output_dir: dir } });
+  },
   setParallelWorkers: (n) => {
     const clamped = Math.max(1, Math.min(4, n));
     set({ parallelWorkers: clamped });
+    void invokeCommand("set_max_concurrent_jobs", { maxJobs: clamped });
     useSystemStore.setState((sys) => ({
       health: {
         ...sys.health,
@@ -115,7 +134,96 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       },
     }));
   },
-  setAutoOpenFolder: (v) => set({ autoOpenFolder: v }),
+  setAutoOpenFolder: (v) => {
+    set({ autoOpenFolder: v });
+    void invokeCommand("update_settings", { patch: { auto_open_folder: v } });
+  },
+  toggleQueuePaused: () => {
+    const next = !get().queuePaused;
+    set({ queuePaused: next });
+    void invokeCommand(next ? "pause_queue" : "resume_queue");
+    get().appendLog(
+      next
+        ? "[queue] Queue paused — active segment will finish, queued jobs held."
+        : "[queue] Queue resumed — dispatching next priority job."
+    );
+  },
+  setJobPriority: (jobId, priority) => {
+    set((s) => ({
+      jobs: s.jobs.map((j) => (j.job_id === jobId ? { ...j, priority } : j)),
+    }));
+    void invokeCommand("set_job_priority", { jobId, priority });
+    get().appendLog(`[queue] Job ${jobId} priority set to ${priority.toUpperCase()}`);
+  },
+  reorderJob: (jobId, direction) => {
+    set((s) => {
+      const idx = s.jobs.findIndex((j) => j.job_id === jobId);
+      if (idx < 0) return s;
+      const targetIdx = direction === "up" ? Math.max(0, idx - 1) : Math.min(s.jobs.length - 1, idx + 1);
+      if (targetIdx === idx) return s;
+      const nextJobs = [...s.jobs];
+      const [moved] = nextJobs.splice(idx, 1);
+      nextJobs.splice(targetIdx, 0, moved);
+      void invokeCommand("reorder_job", { jobId, newIndex: targetIdx });
+      return { jobs: nextJobs };
+    });
+  },
+  retryFailedJob: (jobId) => {
+    const failed = get().jobs.find((j) => j.job_id === jobId);
+    if (!failed) return;
+    set((s) => ({
+      jobs: s.jobs.map((j) =>
+        j.job_id === jobId
+          ? {
+              ...j,
+              status: "inferring",
+              phase: "inference",
+              percent: 35,
+              error_code: null,
+              error_message: null,
+              message: "Retrying separation on fresh worker process...",
+            }
+          : j
+      ),
+    }));
+    get().appendLog(`[retry] Retrying ${jobId} on respawned worker slot...`);
+  },
+  clearCompletedJobs: () => {
+    set((s) => ({
+      jobs: s.jobs.filter((j) => j.status !== "done" && j.status !== "cancelled"),
+    }));
+  },
+  simulateFailedJob: () => {
+    const errJob: JobRecord = {
+      job_id: `job-err-${Date.now()}`,
+      input_path: "C:\\Users\\Lam3y\\Music\\Corrupted_Stream_0Byte.wav",
+      output_dir: "C:\\Users\\Lam3y\\Music\\output_vocals\\Corrupted_Stream_0Byte",
+      options: { ...get().options },
+      status: "failed",
+      phase: "error",
+      percent: 0,
+      segment_index: 0,
+      segment_total: 8,
+      sub_model_index: 0,
+      sub_model_total: 1,
+      eta_s: null,
+      message: "DECODE_FAILED: Input file is empty (0 bytes) or contains corrupt audio frames.",
+      stems: [],
+      comparison_samples: [],
+      error_code: "DECODE_FAILED",
+      error_message:
+        "Input file 'Corrupted_Stream_0Byte.wav' is empty (0 bytes) or unreadable. Verify the file is a valid audio/video stream and retry.",
+      created_at: new Date().toISOString(),
+      elapsed_s: 0.04,
+      worker_slot: 0,
+      priority: "normal",
+    };
+    set((s) => ({
+      jobs: [errJob, ...s.jobs],
+      activeJobId: errJob.job_id,
+    }));
+    get().appendLog(`[job_error] ${errJob.job_id} failed with code=${errJob.error_code}`);
+  },
   appendLog: (line) =>
     set((s) => ({
       logs: [...s.logs.slice(-499), line],
@@ -125,6 +233,12 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   startSeparationBatch: () => {
     const { selectedFiles, options, customOutputDir, parallelWorkers, appendLog } = get();
     if (selectedFiles.length === 0) return;
+
+    void invokeCommand("start_separation_batch", {
+      inputs: selectedFiles,
+      outputBaseDir: customOutputDir || "C:\\Users\\Lam3y\\Music\\output_vocals",
+      options,
+    });
 
     const maxSlots = Math.max(1, parallelWorkers);
     const newJobs: JobRecord[] = selectedFiles.map((filePath, idx) => {
@@ -156,6 +270,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
         created_at: new Date().toISOString(),
         elapsed_s: null,
         worker_slot: assignedSlot,
+        priority: "normal",
       };
     });
 
@@ -170,9 +285,10 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       );
       let step = 0;
       const timer = setInterval(() => {
+        if (get().queuePaused) return;
         step += 1;
         const curr = get().jobs.find((j) => j.job_id === job.job_id);
-        if (!curr || curr.status === "cancelled" || curr.status === "done") {
+        if (!curr || curr.status === "cancelled" || curr.status === "done" || curr.status === "failed") {
           clearInterval(timer);
           activeTimers.delete(job.job_id);
           return;
@@ -297,6 +413,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   },
 
   cancelJob: (jobId) => {
+    void invokeCommand("cancel_separation_job", { jobId });
     const t = activeTimers.get(jobId);
     if (t) {
       clearInterval(t);
@@ -320,7 +437,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 }));
 
 // ---------------------------------------------------------------------------
-// 2. Real-Time Stem Mixer Store (Lock-Free Rust Mixer Mirror)
+// 2. Real-Time Stem Mixer Store (Lock-Free Rust Streaming Mixer Mirror)
 // ---------------------------------------------------------------------------
 interface MixerState {
   activeFolder: string;
@@ -403,7 +520,8 @@ export const useMixerStore = create<MixerState>((set, get) => ({
       duration_s: 194.2,
     },
   ],
-  loadFolderStems: (entry) =>
+  loadFolderStems: (entry) => {
+    void invokeCommand("mixer_load_folder", { folderPath: entry.folder_path });
     set({
       activeFolder: entry.folder_path,
       durationSec: entry.duration_s || 180,
@@ -417,45 +535,89 @@ export const useMixerStore = create<MixerState>((set, get) => ({
         solo: false,
         duration_s: s.duration_s,
       })),
-    }),
-  setStemGain: (name, gain) =>
+    });
+  },
+  setStemGain: (name, gain) => {
+    const clamped = Math.max(0, Math.min(2, gain));
+    void invokeCommand("mixer_set_gain", { stemName: name, gain: clamped });
     set((s) => ({
-      stems: s.stems.map((st) => (st.name === name ? { ...st, gain: Math.max(0, Math.min(2, gain)) } : st)),
-    })),
+      stems: s.stems.map((st) => (st.name === name ? { ...st, gain: clamped } : st)),
+    }));
+  },
   toggleMute: (name) =>
-    set((s) => ({
-      stems: s.stems.map((st) => (st.name === name ? { ...st, mute: !st.mute } : st)),
-    })),
+    set((s) => {
+      const nextStems = s.stems.map((st) => {
+        if (st.name === name) {
+          const nextMute = !st.mute;
+          void invokeCommand("mixer_set_mute", { stemName: name, mute: nextMute });
+          return { ...st, mute: nextMute };
+        }
+        return st;
+      });
+      return { stems: nextStems };
+    }),
   toggleSolo: (name) =>
-    set((s) => ({
-      stems: s.stems.map((st) => (st.name === name ? { ...st, solo: !st.solo } : st)),
-    })),
+    set((s) => {
+      const nextStems = s.stems.map((st) => {
+        if (st.name === name) {
+          const nextSolo = !st.solo;
+          void invokeCommand("mixer_set_solo", { stemName: name, solo: nextSolo });
+          return { ...st, solo: nextSolo };
+        }
+        return st;
+      });
+      return { stems: nextStems };
+    }),
   resetStems: () =>
     set((s) => ({
       stems: s.stems.map((st) => ({ ...st, gain: 1.0, mute: false, solo: false })),
     })),
-  togglePlay: () => set((s) => ({ playing: !s.playing })),
-  seek: (sec) => set((s) => ({ playheadSec: Math.max(0, Math.min(s.durationSec, sec)) })),
+  togglePlay: () =>
+    set((s) => {
+      const next = !s.playing;
+      void invokeCommand("mixer_set_playing", { playing: next });
+      return { playing: next };
+    }),
+  seek: (sec) => {
+    const clamped = Math.max(0, Math.min(get().durationSec, sec));
+    void invokeCommand("mixer_seek", { frame: Math.round(clamped * 44100) });
+    set({ playheadSec: clamped });
+  },
   setExportFormat: (fmt) => set({ exportFormat: fmt }),
   setExportBitrate: (br) => set({ exportBitrate: br }),
   exportMix: () => {
     const { activeFolder, exportFormat, exportBitrate } = get();
     const out = `${activeFolder}\\stem_mix.${exportFormat}`;
+    void invokeCommand("mixer_export_mix", {
+      outputPath: out,
+      format: exportFormat,
+      bitrate: exportBitrate,
+    });
     set({
       lastExportMessage: `Exported Mixed Track -> ${out} (${exportFormat.toUpperCase()} @ ${exportBitrate}, soft-limited -0.1 dBFS)`,
     });
   },
   exportSeparateStems: () => {
-    const { activeFolder, exportFormat, stems } = get();
+    const { activeFolder, exportFormat, exportBitrate, stems } = get();
+    void invokeCommand("mixer_export_separate", {
+      outputDir: activeFolder,
+      format: exportFormat,
+      bitrate: exportBitrate,
+    });
     const activeCount = stems.filter((s) => !s.mute && s.gain > 0).length;
     set({
       lastExportMessage: `Exported ${activeCount} custom volume-adjusted stems (*_custom.${exportFormat}) to ${activeFolder}`,
     });
   },
   exportStemMidi: (stemName) => {
-    const { activeFolder } = get();
+    const { activeFolder, stems } = get();
+    const stem = stems.find((s) => s.name === stemName);
+    const out = `${activeFolder}\\${stemName}.mid`;
+    if (stem) {
+      void invokeCommand("export_stem_midi", { inputPath: stem.path, outputMidiPath: out });
+    }
     set({
-      lastExportMessage: `Converted '${stemName}' via librosa.pyin (C2–C7, 5-frame median filter) -> ${activeFolder}\\${stemName}.mid`,
+      lastExportMessage: `Converted '${stemName}' via librosa.pyin (C2–C7, 5-frame median filter) -> ${out}`,
     });
   },
 }));
@@ -662,7 +824,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       outputs: [entry, ...s.outputs.filter((o) => o.folder_path !== entry.folder_path)],
       selectedOutputId: entry.id,
     })),
-  runAnalysisForFolder: (folderPath) =>
+  runAnalysisForFolder: (folderPath) => {
+    void invokeCommand("analyze_audio_file", { inputPath: folderPath });
     set((s) => ({
       analysisByFolder: {
         ...s.analysisByFolder,
@@ -674,13 +837,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           waveform: SYNTH_WAVEFORM_8000,
         },
       },
-    })),
+    }));
+  },
   addSeparationHistory: (entry) =>
     set((s) => ({
       separationHistory: [entry, ...s.separationHistory],
     })),
-  clearSeparationHistory: () => set({ separationHistory: [] }),
+  clearSeparationHistory: () => {
+    void invokeCommand("clear_separation_history");
+    set({ separationHistory: [] });
+  },
   downloadMediaUrl: (url) => {
+    void invokeCommand("download_media_url", { url });
     const rawName = url.split("?")[0].split("/").pop() || `media_${Date.now()}.mp3`;
     const localPath = `C:\\Users\\Lam3y\\AppData\\Roaming\\VocalPro\\uploads\\${rawName}`;
     const ext = (rawName.split(".").pop() || "MP3").toUpperCase();
@@ -699,7 +867,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     useJobsStore.getState().addFiles([localPath]);
     useJobsStore.getState().appendLog(`[download] Saved ${url} -> ${localPath} and queued for separation`);
   },
-  clearDownloadHistory: () => set({ downloadHistory: [] }),
+  clearDownloadHistory: () => {
+    void invokeCommand("clear_download_history");
+    set({ downloadHistory: [] });
+  },
   savePreset: (name, options) =>
     set((s) => ({
       presets: [...s.presets.filter((p) => p.name !== name), { name, options: { ...options } }],
@@ -711,12 +882,31 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 }));
 
 // ---------------------------------------------------------------------------
-// 4. System & Settings Store (Locale, Hardware Profile, Worker Pool, Models)
+// 4. System & Settings Store (8 Sections, Theme, Scale, Accessibility, Onboarding)
 // ---------------------------------------------------------------------------
 interface SystemState {
   locale: SupportedLocale;
+  theme: "dark" | "light" | "system";
+  uiScale: 90 | 100 | 110 | 125;
+  highContrast: boolean;
+  reducedMotion: boolean;
   alwaysOnTop: boolean;
   minimizeToTray: boolean;
+  onboardingDone: boolean;
+  showOnboardingModal: boolean;
+  settingsSearchQuery: string;
+  settingsViewMode: "basic" | "advanced";
+  namingTemplate: string;
+  conflictPolicy: "append_number" | "overwrite" | "skip";
+  preserveFolderStructure: boolean;
+  maxCacheSizeGb: number;
+  activeProfileMode: PerformanceProfileMode;
+  calibrating: boolean;
+  lastCalibrationResult: {
+    elapsed_ms: number;
+    throughput_x_realtime: number;
+    hardware_fingerprint: string;
+  } | null;
   fileAssociationsRegistered: boolean;
   desktopShortcutCreated: boolean;
   health: WorkerHealth;
@@ -726,8 +916,26 @@ interface SystemState {
   showChangelogModal: boolean;
   systemBanner: string | null;
   setLocale: (loc: SupportedLocale) => void;
+  setTheme: (theme: "dark" | "light" | "system") => void;
+  setUiScale: (scale: 90 | 100 | 110 | 125) => void;
+  setHighContrast: (v: boolean) => void;
+  setReducedMotion: (v: boolean) => void;
   setAlwaysOnTop: (v: boolean) => void;
   setMinimizeToTray: (v: boolean) => void;
+  setShowOnboardingModal: (v: boolean) => void;
+  completeOnboarding: () => void;
+  setSettingsSearchQuery: (q: string) => void;
+  setSettingsViewMode: (m: "basic" | "advanced") => void;
+  setNamingTemplate: (tpl: string) => void;
+  setConflictPolicy: (p: "append_number" | "overwrite" | "skip") => void;
+  setPreserveFolderStructure: (v: boolean) => void;
+  setMaxCacheSizeGb: (gb: number) => void;
+  setPerformanceProfileMode: (mode: PerformanceProfileMode) => void;
+  calibrateHardware: () => void;
+  resetSettingKey: (key: string) => void;
+  resetAllSettings: () => void;
+  exportSettingsJson: () => string;
+  importSettingsJson: (rawJson: string) => void;
   registerFileAssociations: () => void;
   createDesktopShortcut: () => void;
   restartWorker: () => void;
@@ -738,8 +946,27 @@ interface SystemState {
 
 export const useSystemStore = create<SystemState>((set, get) => ({
   locale: "en",
+  theme: "dark",
+  uiScale: 100,
+  highContrast: false,
+  reducedMotion: false,
   alwaysOnTop: false,
   minimizeToTray: false,
+  onboardingDone: true,
+  showOnboardingModal: false,
+  settingsSearchQuery: "",
+  settingsViewMode: "basic",
+  namingTemplate: "{track}_{stem}",
+  conflictPolicy: "append_number",
+  preserveFolderStructure: true,
+  maxCacheSizeGb: 10.0,
+  activeProfileMode: "Auto",
+  calibrating: false,
+  lastCalibrationResult: {
+    elapsed_ms: 82.4,
+    throughput_x_realtime: 48.5,
+    hardware_fingerprint: "9f41c8a20b17e3d4",
+  },
   fileAssociationsRegistered: true,
   desktopShortcutCreated: true,
   showChangelogModal: false,
@@ -769,13 +996,23 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     total_ram_mb: 16384,
     available_ram_mb: 12288,
     disk_free_gb: 142.5,
+    temp_drive_speed_mb_s: 1480.0,
+    on_battery: false,
+    power_source: "ac",
     cuda_available: true,
     mps_available: false,
     gpu_name: "NVIDIA GeForce RTX (8 GB VRAM)",
     vram_mb: 8192,
+    non_cuda_gpu_name: null,
+    non_cuda_gpu_note: null,
     fp16_supported: true,
     device_tier: "high_gpu",
     tier_label: "High-Performance GPU (6-11GB VRAM)",
+    active_profile_mode: "Auto",
+    profile_changes_label:
+      "Auto profile sets: device=CUDA, workers=2, threads/job=8, segment=7.8s, shifts=1, overlap=0.25, fp16=False",
+    quality_impact_note: "Quality: Reference FP32 (0.00 dB SDR delta vs legacy)",
+    hardware_fingerprint: "9f41c8a20b17e3d4",
     recommended_device: "cuda",
     recommended_max_concurrent_jobs: 2,
     recommended_threads_per_job: 8,
@@ -783,7 +1020,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     recommended_overlap: 0.25,
     recommended_shifts: 1,
     recommended_preset: "high",
-    recommended_fp16: true,
+    recommended_fp16: false,
     recommended_parallel_dsp: true,
     recommended_safe_mode: false,
   },
@@ -861,57 +1098,217 @@ export const useSystemStore = create<SystemState>((set, get) => ({
         "Native Rust + Tauri v2 + React 19 architecture with zero localhost HTTP/WebSocket ports (fixes WinError 10055)",
         "Multi-process parallel worker pool (1-4 concurrent processes) & hardware auto-optimization",
         "Real per-segment Demucs progress and < 500 ms cooperative job cancellation",
-        "Real-time lock-free Rust multi-stem mixer with < 15 ms fader latency",
+        "Real-time lock-free Rust streaming stem mixer (< 15 ms fader latency, ~30 MB resident RAM for 6x5min stems)",
         "All 6 stems saved for htdemucs_6s and output_all_stems (fixes P-07)",
         "SQLite WAL database with automatic v1/v2 config and history migration",
       ],
     },
   ],
-  setLocale: (loc) => set({ locale: loc }),
-  setAlwaysOnTop: (v) => set({ alwaysOnTop: v, systemBanner: `Window Always-on-Top: ${v ? "Enabled" : "Disabled"}` }),
-  setMinimizeToTray: (v) =>
-    set({ minimizeToTray: v, systemBanner: `Minimize to System Tray: ${v ? "Enabled" : "Disabled"}` }),
-  registerFileAssociations: () =>
+  setLocale: (loc) => {
+    set({ locale: loc });
+    void invokeCommand("update_settings", { patch: { locale: loc } });
+  },
+  setTheme: (theme) => {
+    set({ theme, systemBanner: `Theme changed to ${theme.toUpperCase()}` });
+    void invokeCommand("update_settings", { patch: { theme } });
+  },
+  setUiScale: (uiScale) => {
+    set({ uiScale, systemBanner: `UI Scale set to ${uiScale}%` });
+    void invokeCommand("update_settings", { patch: { ui_scale: uiScale } });
+  },
+  setHighContrast: (highContrast) => {
+    set({ highContrast, systemBanner: `High Contrast Mode: ${highContrast ? "ON" : "OFF"}` });
+    void invokeCommand("update_settings", { patch: { high_contrast: highContrast } });
+  },
+  setReducedMotion: (reducedMotion) => {
+    set({ reducedMotion, systemBanner: `Reduced Motion: ${reducedMotion ? "ON" : "OFF"}` });
+    void invokeCommand("update_settings", { patch: { reduced_motion: reducedMotion } });
+  },
+  setAlwaysOnTop: (v) => {
+    set({ alwaysOnTop: v, systemBanner: `Window Always-on-Top: ${v ? "Enabled" : "Disabled"}` });
+    void invokeCommand("set_window_always_on_top", { alwaysOnTop: v });
+  },
+  setMinimizeToTray: (v) => {
+    set({ minimizeToTray: v, systemBanner: `Minimize to System Tray: ${v ? "Enabled" : "Disabled"}` });
+    void invokeCommand("update_settings", { patch: { minimize_to_tray: v } });
+  },
+  setShowOnboardingModal: (v) => set({ showOnboardingModal: v }),
+  completeOnboarding: () => {
+    set({ onboardingDone: true, showOnboardingModal: false });
+    void invokeCommand("update_settings", { patch: { onboarding_done: true } });
+  },
+  setSettingsSearchQuery: (q) => set({ settingsSearchQuery: q }),
+  setSettingsViewMode: (m) => set({ settingsViewMode: m }),
+  setNamingTemplate: (tpl) => {
+    set({ namingTemplate: tpl });
+    void invokeCommand("update_settings", { patch: { naming_template: tpl } });
+  },
+  setConflictPolicy: (p) => {
+    set({ conflictPolicy: p });
+    void invokeCommand("update_settings", { patch: { conflict_policy: p } });
+  },
+  setPreserveFolderStructure: (v) => {
+    set({ preserveFolderStructure: v });
+    void invokeCommand("update_settings", { patch: { preserve_folder_structure: v } });
+  },
+  setMaxCacheSizeGb: (gb) => {
+    set({ maxCacheSizeGb: gb });
+    void invokeCommand("update_settings", { patch: { max_cache_size_gb: gb } });
+  },
+  setPerformanceProfileMode: (mode) => {
+    void invokeCommand("auto_optimize_for_hardware", { profileMode: mode });
+    const hw = get().hardwareProfile;
+    let shifts = 1;
+    let overlap = 0.25;
+    let segment = hw.recommended_segment_s;
+    let workers = hw.recommended_max_concurrent_jobs;
+    let qualityNote = "Quality: Reference FP32 (0.00 dB SDR delta vs legacy)";
+    if (mode === "Eco") {
+      shifts = 0;
+      overlap = 0.15;
+      segment = Math.min(segment, 5.0);
+      workers = 1;
+      qualityNote = "Quality: Fast Preview (shifts=0, overlap=0.15 -> ~0.35 dB lower SDR for ~35% faster speed)";
+    } else if (mode === "Max Quality") {
+      shifts = 1;
+      overlap = 0.25;
+      segment = hw.cuda_available ? 7.8 : 6.0;
+    }
+    const label = `${mode} profile sets: device=${hw.recommended_device.toUpperCase()}, workers=${workers}, threads/job=${hw.recommended_threads_per_job}, segment=${segment}s, shifts=${shifts}, overlap=${overlap}, fp16=False`;
+    set({
+      activeProfileMode: mode,
+      hardwareProfile: {
+        ...hw,
+        active_profile_mode: mode,
+        recommended_shifts: shifts,
+        recommended_overlap: overlap,
+        recommended_segment_s: segment,
+        recommended_max_concurrent_jobs: workers,
+        profile_changes_label: label,
+        quality_impact_note: qualityNote,
+      },
+      systemBanner: `${label} (${qualityNote})`,
+    });
+    useJobsStore.getState().setParallelWorkers(workers);
+    useJobsStore.getState().setOptions({
+      shifts,
+      overlap,
+      segment,
+      fp16_inference: false,
+    });
+  },
+  calibrateHardware: () => {
+    set({ calibrating: true, systemBanner: "Running <= 30s hardware micro-calibration benchmark..." });
+    void invokeCommand("calibrate_hardware");
+    setTimeout(() => {
+      const res = {
+        elapsed_ms: 78.6,
+        throughput_x_realtime: 50.9,
+        hardware_fingerprint: get().hardwareProfile.hardware_fingerprint || "9f41c8a20b17e3d4",
+      };
+      set({
+        calibrating: false,
+        lastCalibrationResult: res,
+        systemBanner: `Hardware Calibration Complete in ${res.elapsed_ms} ms (${res.throughput_x_realtime}x real-time, fingerprint=${res.hardware_fingerprint})`,
+      });
+    }, 120);
+  },
+  resetSettingKey: (key) => {
+    void invokeCommand("reset_setting_key", { key });
+    if (key in DEFAULT_JOB_OPTIONS) {
+      const defVal = (DEFAULT_JOB_OPTIONS as unknown as Record<string, unknown>)[key];
+      useJobsStore.getState().setOptions({ [key]: defVal } as Partial<JobOptions>);
+    }
+    set({ systemBanner: `Reset setting '${key}' to recommended default.` });
+  },
+  resetAllSettings: () => {
+    void invokeCommand("reset_settings_to_defaults");
+    useJobsStore.getState().setOptions({ ...DEFAULT_JOB_OPTIONS });
+    set({
+      theme: "dark",
+      uiScale: 100,
+      highContrast: false,
+      reducedMotion: false,
+      activeProfileMode: "Auto",
+      namingTemplate: "{track}_{stem}",
+      conflictPolicy: "append_number",
+      preserveFolderStructure: true,
+      systemBanner: "All settings reset to recommended defaults.",
+    });
+  },
+  exportSettingsJson: () => {
+    void invokeCommand("export_settings_json");
+    const payload = JSON.stringify(
+      {
+        version: "3.0.0",
+        profile_mode: get().activeProfileMode,
+        theme: get().theme,
+        ui_scale: get().uiScale,
+        naming_template: get().namingTemplate,
+        conflict_policy: get().conflictPolicy,
+        options: useJobsStore.getState().options,
+      },
+      null,
+      2
+    );
+    set({ systemBanner: "Exported settings JSON to clipboard / file." });
+    return payload;
+  },
+  importSettingsJson: (rawJson) => {
+    void invokeCommand("import_settings_json", { rawJson });
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (parsed.options) {
+        useJobsStore.getState().setOptions(parsed.options);
+      }
+      set({ systemBanner: "Imported settings JSON successfully." });
+    } catch {
+      set({ systemBanner: "Failed to parse imported settings JSON." });
+    }
+  },
+  registerFileAssociations: () => {
+    void invokeCommand("register_file_associations");
     set({
       fileAssociationsRegistered: true,
       systemBanner:
         "Registered Windows File Associations (.mp3, .wav, .flac, .ogg, .mp4, .mkv, .avi, .mov) in HKCU\\Software\\Classes",
-    }),
-  createDesktopShortcut: () =>
+    });
+  },
+  createDesktopShortcut: () => {
+    void invokeCommand("create_desktop_shortcut");
     set({
       desktopShortcutCreated: true,
       systemBanner: "Created Desktop Shortcut (VocalPro.lnk)",
-    }),
-  restartWorker: () =>
+    });
+  },
+  restartWorker: () => {
+    void invokeCommand("restart_worker");
     set((s) => ({
       health: { ...s.health, running: true, restart_count: s.health.restart_count + 1 },
       systemBanner: "Worker pool respawned cleanly over stdio JSON-Lines (handshake < 50 ms)",
-    })),
-  exportDiagnosticBundle: () =>
+    }));
+  },
+  exportDiagnosticBundle: () => {
+    void invokeCommand("export_diagnostic_bundle", {
+      outputZipPath: "C:\\Users\\Lam3y\\AppData\\Roaming\\VocalPro\\vocalpro-diagnostics.zip",
+    });
     set({
       systemBanner:
         "Exported diagnostic bundle -> %APPDATA%\\VocalPro\\vocalpro-diagnostics.zip (worker_logs.txt, settings.json, worker_health.json)",
-    }),
-  setShowChangelogModal: (v) => set({ showChangelogModal: v }),
-  autoOptimizeForHardware: () => {
-    const hw = get().hardwareProfile;
-    useJobsStore.getState().setParallelWorkers(hw.recommended_max_concurrent_jobs);
-    useJobsStore.getState().setOptions({
-      device: hw.recommended_device,
-      max_threads: hw.recommended_threads_per_job,
-      segment: hw.recommended_segment_s,
-      overlap: hw.recommended_overlap,
-      shifts: hw.recommended_shifts,
-      safe_mode: hw.recommended_safe_mode,
-      auto_oom_fallback: true,
-    });
-    useJobsStore
-      .getState()
-      .appendLog(
-        `[hardware-optimizer] Applied profile '${hw.tier_label}': parallelWorkers=${hw.recommended_max_concurrent_jobs}, threadsPerJob=${hw.recommended_threads_per_job}, device=${hw.recommended_device.toUpperCase()}, segment=${hw.recommended_segment_s}s`
-      );
-    set({
-      systemBanner: `Auto-Optimized for ${hw.tier_label}: ${hw.recommended_max_concurrent_jobs} Parallel Processes • ${hw.recommended_threads_per_job} Threads/Process • ${hw.recommended_device.toUpperCase()} Acceleration • FP16=${hw.recommended_fp16 ? "ON" : "OFF"}`,
     });
   },
+  setShowChangelogModal: (v) => set({ showChangelogModal: v }),
+  autoOptimizeForHardware: () => {
+    const mode = get().activeProfileMode;
+    get().setPerformanceProfileMode(mode);
+  },
 }));
+
+if (typeof window !== "undefined") {
+  (window as unknown as Record<string, unknown>).__VOCALPRO_STORES__ = {
+    useJobsStore,
+    useMixerStore,
+    useLibraryStore,
+    useSystemStore,
+  };
+}

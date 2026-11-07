@@ -31,6 +31,7 @@ pub struct WorkerHealth {
     pub restart_count: u32,
     pub max_concurrent_workers: u32,
     pub active_workers: u32,
+    pub queue_paused: bool,
     pub slots: Vec<WorkerSlotStatus>,
 }
 
@@ -41,11 +42,13 @@ struct WorkerProcessSlot {
     stdin: Option<ChildStdin>,
     running: bool,
     active_job_id: Option<String>,
+    active_cmd_id: Option<String>,
 }
 
 struct SupervisorInner {
     slots: Vec<WorkerProcessSlot>,
     max_concurrent_workers: usize,
+    queue_paused: bool,
     job_to_slot: HashMap<String, usize>,
     health: WorkerHealth,
     pending: HashMap<String, oneshot::Sender<WorkerEvent>>,
@@ -63,15 +66,40 @@ pub struct WorkerSupervisor {
     event_tx: broadcast::Sender<WorkerEvent>,
 }
 
+fn compute_memory_aware_default_workers() -> usize {
+    let logical_cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let mut avail_ram_mb: u64 = 6144;
+    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+        for line in meminfo.lines() {
+            if line.starts_with("MemAvailable:") {
+                if let Some(kb) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
+                    avail_ram_mb = kb / 1024;
+                }
+            }
+        }
+    }
+    // Addendum #3: Only default to >1 concurrent heavy CPU separation worker when >=16 threads AND >=12 GB free RAM.
+    if logical_cores >= 16 && avail_ram_mb >= 12000 {
+        2
+    } else {
+        1
+    }
+}
+
 impl WorkerSupervisor {
     pub fn new(python_bin: PathBuf, worker_pythonpath: PathBuf, fast_test_model: bool) -> Self {
-        let default_concurrency = std::thread::available_parallelism()
-            .map(|n| if n.get() >= 4 { 2 } else { 1 })
-            .unwrap_or(2);
+        let default_concurrency = compute_memory_aware_default_workers();
         let (event_tx, _) = broadcast::channel(512);
         let inner = SupervisorInner {
             slots: Vec::new(),
             max_concurrent_workers: default_concurrency,
+            queue_paused: false,
             job_to_slot: HashMap::new(),
             health: WorkerHealth {
                 running: false,
@@ -83,6 +111,7 @@ impl WorkerSupervisor {
                 restart_count: 0,
                 max_concurrent_workers: default_concurrency as u32,
                 active_workers: 0,
+                queue_paused: false,
                 slots: Vec::new(),
             },
             pending: HashMap::new(),
@@ -111,6 +140,41 @@ impl WorkerSupervisor {
 
     pub fn max_concurrent_workers(&self) -> usize {
         self.inner.lock().unwrap().max_concurrent_workers
+    }
+
+    pub fn pause_queue(&self) {
+        let mut guard = self.inner.lock().unwrap();
+        guard.queue_paused = true;
+        guard.health.queue_paused = true;
+    }
+
+    pub fn resume_queue(&self) {
+        {
+            let mut guard = self.inner.lock().unwrap();
+            guard.queue_paused = false;
+            guard.health.queue_paused = false;
+        }
+        self.slot_notify.notify_waiters();
+    }
+
+    pub fn is_queue_paused(&self) -> bool {
+        self.inner.lock().unwrap().queue_paused
+    }
+
+    pub fn set_job_priority(&self, job_id: &str, priority: &str) -> Option<JobRecord> {
+        self.inner
+            .lock()
+            .unwrap()
+            .queue
+            .set_priority(job_id, priority)
+    }
+
+    pub fn reorder_job(&self, job_id: &str, new_index: usize) -> bool {
+        self.inner.lock().unwrap().queue.reorder(job_id, new_index)
+    }
+
+    pub fn restore_jobs(&self, records: Vec<JobRecord>) {
+        self.inner.lock().unwrap().queue.restore_records(records);
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<WorkerEvent> {
@@ -190,6 +254,7 @@ impl WorkerSupervisor {
                     stdin: None,
                     running: false,
                     active_job_id: None,
+                    active_cmd_id: None,
                 });
             }
 
@@ -200,6 +265,7 @@ impl WorkerSupervisor {
                 stdin: Some(stdin),
                 running: true,
                 active_job_id: None,
+                active_cmd_id: None,
             };
             Self::refresh_health_slots(&mut guard);
         }
@@ -273,6 +339,7 @@ impl WorkerSupervisor {
                             if let Some(s) = g.slots.get_mut(slot_id) {
                                 if s.active_job_id.as_deref() == Some(job_id.as_str()) {
                                     s.active_job_id = None;
+                                    s.active_cmd_id = None;
                                 }
                             }
                             Self::refresh_health_slots(&mut g);
@@ -287,6 +354,7 @@ impl WorkerSupervisor {
                             if let Some(s) = g.slots.get_mut(slot_id) {
                                 if s.active_job_id.as_deref() == Some(job_id.as_str()) {
                                     s.active_job_id = None;
+                                    s.active_cmd_id = None;
                                 }
                             }
                             Self::refresh_health_slots(&mut g);
@@ -310,6 +378,7 @@ impl WorkerSupervisor {
                             if let Some(s) = g.slots.get_mut(slot_id) {
                                 if s.active_job_id.as_deref() == Some(job_id.as_str()) {
                                     s.active_job_id = None;
+                                    s.active_cmd_id = None;
                                 }
                             }
                             Self::refresh_health_slots(&mut g);
@@ -320,6 +389,7 @@ impl WorkerSupervisor {
                         }
                         WorkerEvent::Pong { id }
                         | WorkerEvent::Capabilities { id, .. }
+                        | WorkerEvent::CalibrationDone { id, .. }
                         | WorkerEvent::AnalysisDone { id, .. }
                         | WorkerEvent::MidiDone { id, .. } => {
                             if let Some(waiter) = g.pending.remove(id) {
@@ -346,10 +416,39 @@ impl WorkerSupervisor {
                 }
             }
 
+            // Crash / SIGKILL Isolation (Fixes ISS-007):
+            // If this worker slot exited while an active_job_id was still running, mark that job failed
+            // and notify its pending waiter immediately without affecting other running worker slots!
             let mut g = inner_out.lock().unwrap();
+            let mut crashed_job: Option<(String, Option<String>)> = None;
             if let Some(s) = g.slots.get_mut(slot_id) {
                 s.running = false;
-                s.active_job_id = None;
+                if let Some(jid) = s.active_job_id.take() {
+                    crashed_job = Some((jid, s.active_cmd_id.take()));
+                }
+            }
+            if let Some((jid, cmd_id_opt)) = crashed_job {
+                g.job_to_slot.remove(&jid);
+                g.health.restart_count += 1;
+                let crash_msg = format!(
+                    "Worker process slot {} terminated unexpectedly (isolated crash recovery)",
+                    slot_id
+                );
+                g.queue
+                    .mark_failed(&jid, "WORKER_CRASHED".to_string(), crash_msg.clone());
+                let err_ev = WorkerEvent::JobError {
+                    id: cmd_id_opt.clone().unwrap_or_else(|| jid.clone()),
+                    job_id: jid,
+                    code: "WORKER_CRASHED".to_string(),
+                    message: crash_msg,
+                    detail: Some(format!("Slot {} EOF on stdout", slot_id)),
+                };
+                let _ = tx_out.send(err_ev.clone());
+                if let Some(cid) = cmd_id_opt {
+                    if let Some(waiter) = g.pending.remove(&cid) {
+                        let _ = waiter.send(err_ev);
+                    }
+                }
             }
             Self::refresh_health_slots(&mut g);
             notify_out.notify_waiters();
@@ -365,7 +464,8 @@ impl WorkerSupervisor {
                 if g.logs.len() >= MAX_LOG_LINES {
                     g.logs.pop_front();
                 }
-                g.logs.push_back(format!("[slot-{}:stderr] {}", slot_id, line));
+                g.logs
+                    .push_back(format!("[slot-{}:stderr] {}", slot_id, line));
             }
         });
 
@@ -393,6 +493,7 @@ impl WorkerSupervisor {
         guard.health.running = any_running;
         guard.health.active_workers = active_cnt;
         guard.health.max_concurrent_workers = guard.max_concurrent_workers as u32;
+        guard.health.queue_paused = guard.queue_paused;
         guard.health.slots = slot_statuses;
     }
 
@@ -435,28 +536,32 @@ impl WorkerSupervisor {
         Ok(())
     }
 
-    /// Acquire a free worker slot (0..max_concurrent_workers), spawning a new Python process on demand if needed.
-    async fn acquire_slot_for_job(&self, job_id: &str) -> AppResult<usize> {
+    /// Acquire a free worker slot (0..max_concurrent_workers) for a heavy separation job,
+    /// respecting queue pause and spawning a new Python process on demand if needed.
+    async fn acquire_slot_for_job(&self, job_id: &str, cmd_id: &str) -> AppResult<usize> {
         loop {
             let mut need_spawn: Option<usize> = None;
             {
                 let mut guard = self.inner.lock().unwrap();
-                let max_w = guard.max_concurrent_workers.max(1);
-                // 1. Check if any already-running slot < max_w is idle
-                for idx in 0..guard.slots.len().min(max_w) {
-                    if guard.slots[idx].running && guard.slots[idx].active_job_id.is_none() {
-                        guard.slots[idx].active_job_id = Some(job_id.to_string());
-                        guard.job_to_slot.insert(job_id.to_string(), idx);
-                        guard.queue.assign_slot(job_id, idx as u32);
-                        Self::refresh_health_slots(&mut guard);
-                        return Ok(idx);
+                if !guard.queue_paused {
+                    let max_w = guard.max_concurrent_workers.max(1);
+                    // 1. Check if any already-running slot < max_w is idle
+                    for idx in 0..guard.slots.len().min(max_w) {
+                        if guard.slots[idx].running && guard.slots[idx].active_job_id.is_none() {
+                            guard.slots[idx].active_job_id = Some(job_id.to_string());
+                            guard.slots[idx].active_cmd_id = Some(cmd_id.to_string());
+                            guard.job_to_slot.insert(job_id.to_string(), idx);
+                            guard.queue.assign_slot(job_id, idx as u32);
+                            Self::refresh_health_slots(&mut guard);
+                            return Ok(idx);
+                        }
                     }
-                }
-                // 2. Check if we can spawn a new slot or respawn a stopped slot < max_w
-                for idx in 0..max_w {
-                    if idx >= guard.slots.len() || !guard.slots[idx].running {
-                        need_spawn = Some(idx);
-                        break;
+                    // 2. Check if we can spawn a new slot or respawn a stopped slot < max_w
+                    for idx in 0..max_w {
+                        if idx >= guard.slots.len() || !guard.slots[idx].running {
+                            need_spawn = Some(idx);
+                            break;
+                        }
                     }
                 }
             }
@@ -464,11 +569,13 @@ impl WorkerSupervisor {
             if let Some(slot_idx) = need_spawn {
                 self.spawn_slot(slot_idx)?;
                 let mut guard = self.inner.lock().unwrap();
-                if slot_idx < guard.slots.len()
+                if !guard.queue_paused
+                    && slot_idx < guard.slots.len()
                     && guard.slots[slot_idx].running
                     && guard.slots[slot_idx].active_job_id.is_none()
                 {
                     guard.slots[slot_idx].active_job_id = Some(job_id.to_string());
+                    guard.slots[slot_idx].active_cmd_id = Some(cmd_id.to_string());
                     guard.job_to_slot.insert(job_id.to_string(), slot_idx);
                     guard.queue.assign_slot(job_id, slot_idx as u32);
                     Self::refresh_health_slots(&mut guard);
@@ -518,8 +625,8 @@ impl WorkerSupervisor {
             );
         }
 
-        let slot_idx = self.acquire_slot_for_job(&job_id).await?;
         let id = uuid::Uuid::new_v4().to_string();
+        let slot_idx = self.acquire_slot_for_job(&job_id, &id).await?;
         let cmd = HostCommand::new(
             id.clone(),
             HostCommandPayload::Separate {
@@ -540,6 +647,7 @@ impl WorkerSupervisor {
             guard.job_to_slot.remove(&job_id);
             if let Some(s) = guard.slots.get_mut(slot_idx) {
                 s.active_job_id = None;
+                s.active_cmd_id = None;
             }
             Self::refresh_health_slots(&mut guard);
             self.slot_notify.notify_waiters();
@@ -590,6 +698,7 @@ impl WorkerSupervisor {
             }
             slot.running = false;
             slot.active_job_id = None;
+            slot.active_cmd_id = None;
         }
         guard.job_to_slot.clear();
         Self::refresh_health_slots(&mut guard);

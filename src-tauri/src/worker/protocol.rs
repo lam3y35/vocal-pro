@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 pub const PROTOCOL_VERSION: u8 = 1;
 
@@ -94,6 +95,10 @@ pub struct JobOptions {
     pub enable_loudness_normalize: bool,
     #[serde(default = "default_true")]
     pub auto_oom_fallback: bool,
+    #[serde(default)]
+    pub fp16_inference: bool,
+    #[serde(default = "default_profile_mode")]
+    pub hardware_profile_mode: String,
 }
 
 fn default_true() -> bool {
@@ -101,6 +106,9 @@ fn default_true() -> bool {
 }
 fn default_wav_bit_depth() -> String {
     "PCM_16".to_string()
+}
+fn default_profile_mode() -> String {
+    "auto".to_string()
 }
 fn default_hf_boost() -> f64 {
     3.0
@@ -206,6 +214,8 @@ impl Default for JobOptions {
             hf_boost_db: 3.0,
             enable_loudness_normalize: true,
             auto_oom_fallback: true,
+            fp16_inference: false,
+            hardware_profile_mode: "auto".to_string(),
         }
     }
 }
@@ -216,6 +226,9 @@ pub enum HostCommandPayload {
     Hello,
     Ping,
     GetCapabilities,
+    CalibrateHardware {
+        duration_s: f64,
+    },
     Separate {
         job_id: String,
         input_path: String,
@@ -289,6 +302,10 @@ pub enum WorkerEvent {
         gpu_name: Option<String>,
         #[serde(default)]
         vram_mb: Option<u64>,
+    },
+    CalibrationDone {
+        id: String,
+        calibration: Value,
     },
     Progress {
         job_id: String,

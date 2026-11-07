@@ -8,8 +8,9 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::error::AppResult;
-use crate::worker::protocol::StemOutput;
+use crate::error::{AppError, AppResult};
+use crate::worker::job_queue::{JobRecord, JobStatus};
+use crate::worker::protocol::{JobOptions, StemOutput};
 
 const MIGRATIONS_SQL: &str = include_str!("migrations.sql");
 
@@ -59,25 +60,44 @@ pub struct AppDatabase {
 
 pub fn default_config_map() -> serde_json::Map<String, Value> {
     let v = json!({
-        "model_name": "htdemucs",
-        "segment": 6,
-        "overlap": 2,
-        "shifts": 1,
+        // 1. General
+        "locale": "en",
+        "theme": "dark",
+        "ui_scale": 100,
+        "confirm_before_cancel": true,
+        "completion_notification": true,
+        "completion_sound": true,
+        "default_opening_screen": "separate",
+        "onboarding_completed": false,
+
+        // 2. Output
+        "default_output_dir": "",
+        "folder_naming_template": "{track_name}",
+        "file_naming_template": "{track_name}_{stem}",
+        "overwrite_behavior": "overwrite",
         "output_format": "wav",
-        "output_all_stems": false,
-        "device": "auto",
-        "large_file_threshold_minutes": 15,
-        "chunk_duration_minutes": 12,
-        "overlap_seconds": 5,
-        "output_video": true,
+        "wav_bit_depth": "PCM_16",
+        "flac_compression_level": 5,
         "audio_bitrate": "320k",
-        "ffmpeg_faststart": true,
-        "ffmpeg_path": "",
-        "progress_update_interval_seconds": 0.5,
+        "auto_open_folder": true,
+        "preserve_source_metadata": true,
+        "output_all_stems": false,
+        "output_video": true,
         "video_output_mode": "both",
+        "ffmpeg_faststart": true,
         "include_sfx": true,
         "save_background_track": false,
         "generate_comparison_samples": false,
+        "karaoke_mode": false,
+
+        // 3. Separation & DSP
+        "model_name": "htdemucs",
+        "preset": "balanced",
+        "segment": 6.0,
+        "overlap": 0.25,
+        "shifts": 1,
+        "ensemble_mode": false,
+        "song_mode": false,
         "trim_silence": true,
         "enable_vocal_gate": true,
         "enable_spectral_denoise": true,
@@ -97,15 +117,56 @@ pub fn default_config_map() -> serde_json::Map<String, Value> {
         "sfx_kernel_size": 15,
         "sfx_margin_harmonic_db": 3.0,
         "sfx_margin_percussive_db": 1.0,
-        "karaoke_mode": false,
-        "ensemble_mode": false,
-        "safe_mode": false,
+        "enable_hf_restore": true,
+        "hf_boost_db": 3.0,
+        "enable_loudness_normalize": true,
+
+        // 4. Performance & Hardware
+        "hardware_profile_mode": "auto",
+        "hardware_auto_optimize": true,
+        "device": "auto",
+        "max_concurrent_jobs": 1,
         "max_threads": 0,
+        "vram_cap_mb": 0,
+        "ram_cap_mb": 0,
+        "fp16_inference": false,
+        "auto_oom_fallback": true,
+        "safe_mode": false,
+        "large_file_threshold_minutes": 15.0,
+        "chunk_duration_minutes": 12.0,
+        "overlap_seconds": 5.0,
         "cooldown_between_chunks_seconds": 0.0,
+        "temp_directory": "",
+        "keep_model_warm_in_memory": true,
+        "progress_update_interval_seconds": 0.5,
+
+        // 5. Queue & Batch
+        "auto_start_on_drop": false,
+        "max_auto_retries_on_transient_failure": 1,
+        "on_batch_complete_action": "none",
+
+        // 6. Audio Playback & Mixer
+        "audio_output_device": "default",
+        "mixer_buffer_size_frames": 512,
+        "mixer_sample_rate": 44100,
+        "preview_loudness_normalization": false,
+        "solo_behavior": "exclusive",
         "auto_preview": false,
-        "locale": "en",
+
+        // 7. System & Integration
         "always_on_top": false,
-        "minimize_to_tray": false
+        "minimize_to_tray": false,
+        "close_to_tray": false,
+        "launch_at_login": false,
+        "ffmpeg_path": "",
+        "models_directory": "",
+        "log_level": "info",
+
+        // 8. Accessibility
+        "high_contrast": false,
+        "reduced_motion": false,
+        "larger_click_targets": false,
+        "screen_reader_verbose_labels": false
     });
     v.as_object().unwrap().clone()
 }
@@ -181,6 +242,23 @@ impl AppDatabase {
         Ok(())
     }
 
+    pub fn reset_setting_key(&self, key: &str) -> AppResult<Value> {
+        let defaults = default_config_map();
+        let default_val = defaults
+            .get(key)
+            .cloned()
+            .ok_or_else(|| AppError::InvalidInput(format!("Unknown setting key: {}", key)))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let v_str = serde_json::to_string(&default_val)?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+            params![key, v_str, now],
+        )?;
+        Ok(default_val)
+    }
+
     pub fn reset_settings_to_default(&self) -> AppResult<HashMap<String, Value>> {
         let now = chrono::Utc::now().to_rfc3339();
         let defaults = default_config_map();
@@ -196,6 +274,98 @@ impl AppDatabase {
             }
         }
         Ok(defaults.into_iter().collect())
+    }
+
+    pub fn export_settings_json(&self) -> AppResult<String> {
+        let all = self.get_all_settings()?;
+        Ok(serde_json::to_string_pretty(&all)?)
+    }
+
+    pub fn import_settings_json(&self, raw_json: &str) -> AppResult<HashMap<String, Value>> {
+        let parsed: HashMap<String, Value> = serde_json::from_str(raw_json)
+            .map_err(|e| AppError::InvalidInput(format!("Invalid settings JSON: {}", e)))?;
+        self.update_settings(&parsed)?;
+        self.get_all_settings()
+    }
+
+    pub fn upsert_job_record(&self, rec: &JobRecord) -> AppResult<()> {
+        let opts_json = serde_json::to_string(&rec.options)?;
+        let status_str = match rec.status {
+            JobStatus::Queued => "queued",
+            JobStatus::Done => "done",
+            JobStatus::Cancelled => "cancelled",
+            JobStatus::Failed => "failed",
+            _ => "running",
+        };
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO jobs (id, input_path, output_dir, model, output_mode, options_json, status, error_code, error_message, created_at, elapsed_s)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+                output_dir = excluded.output_dir,
+                status = excluded.status,
+                error_code = excluded.error_code,
+                error_message = excluded.error_message,
+                elapsed_s = excluded.elapsed_s",
+            params![
+                rec.job_id,
+                rec.input_path,
+                rec.output_dir,
+                rec.options.model,
+                rec.options.output_mode,
+                opts_json,
+                status_str,
+                rec.error_code,
+                rec.error_message,
+                rec.created_at,
+                rec.elapsed_s
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn load_resumable_jobs(&self) -> AppResult<Vec<JobRecord>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, input_path, output_dir, options_json, created_at
+             FROM jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let input_path: String = row.get(1)?;
+            let output_dir: String = row.get(2)?;
+            let opts_str: String = row.get(3)?;
+            let created_at: String = row.get(4)?;
+            let options: JobOptions = serde_json::from_str(&opts_str).unwrap_or_default();
+            Ok(JobRecord {
+                job_id: id,
+                input_path,
+                output_dir,
+                options,
+                status: JobStatus::Queued,
+                phase: "queued".to_string(),
+                percent: 0.0,
+                segment_index: 0,
+                segment_total: 1,
+                sub_model_index: 0,
+                sub_model_total: 1,
+                eta_s: None,
+                message: "Restored from persistent queue".to_string(),
+                stems: Vec::new(),
+                comparison_samples: Vec::new(),
+                error_code: None,
+                error_message: None,
+                created_at,
+                elapsed_s: None,
+                worker_slot: None,
+                priority: "normal".to_string(),
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     pub fn record_output_folder(
@@ -214,8 +384,9 @@ impl AppDatabase {
         let conn = self.conn.lock().unwrap();
         if let Some(jid) = job_id {
             conn.execute(
-                "INSERT OR IGNORE INTO jobs (id, input_path, output_dir, model, output_mode, options_json, status, created_at, finished_at)
-                 VALUES (?1, ?2, ?3, ?4, 'vocals', '{}', 'done', ?5, ?5)",
+                "INSERT INTO jobs (id, input_path, output_dir, model, output_mode, options_json, status, created_at, finished_at)
+                 VALUES (?1, ?2, ?3, ?4, 'vocals', '{}', 'done', ?5, ?5)
+                 ON CONFLICT(id) DO UPDATE SET status = 'done', finished_at = excluded.finished_at",
                 params![jid, source_filename, folder_path, model, now],
             )?;
         }

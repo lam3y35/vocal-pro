@@ -1,0 +1,22 @@
+{
+  "startup_interactive_ms": 742,
+  "rtl_dir_attribute": "rtl",
+  "screenshots_captured": [
+    "01_onboarding_first_run_1280x800.png",
+    "02_separate_ready_dark_1280x800.png",
+    "03_separate_empty_state_1280x800.png",
+    "04_separate_running_batch_1280x800.png",
+    "05_separate_error_state_1280x800.png",
+    "06_results_6stem_mixer_1280x800.png",
+    "07_history_screen_1280x800.png",
+    "08_settings_basic_dark_1280x800.png",
+    "09_settings_advanced_dark_1920x1080.png",
+    "10_settings_light_theme_1280x800.png",
+    "11_separate_arabic_rtl_1280x800.png"
+  ],
+  "accessibility_audit": {
+    "totalButtons": 39,
+    "unlabeledButtons": 0,
+    "horizontalOverflowPx": 0
+  }
+}

@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 
 use crate::audio::mixer::discover_stems_in_folder;
 use crate::error::AppResult;
@@ -104,18 +104,12 @@ pub fn run_legacy_migration(
                         .get("model")
                         .and_then(|v| v.as_str())
                         .unwrap_or("htdemucs");
-                    let device = obj
-                        .get("device")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("auto");
+                    let device = obj.get("device").and_then(|v| v.as_str()).unwrap_or("auto");
                     let status = obj
                         .get("status")
                         .and_then(|v| v.as_str())
                         .unwrap_or("success");
-                    let date = obj
-                        .get("date")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&now);
+                    let date = obj.get("date").and_then(|v| v.as_str()).unwrap_or(&now);
                     let elapsed = match obj.get("elapsed") {
                         Some(Value::String(s)) => s.clone(),
                         Some(Value::Number(n)) => format!("{}s", n),
@@ -154,18 +148,12 @@ pub fn run_legacy_migration(
                         .unwrap_or("Downloaded Track");
                     let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
                     let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    let format = obj
-                        .get("format")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("MP3");
+                    let format = obj.get("format").and_then(|v| v.as_str()).unwrap_or("MP3");
                     let quality = obj
                         .get("quality")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Original");
-                    let date = obj
-                        .get("date")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&now);
+                    let date = obj.get("date").and_then(|v| v.as_str()).unwrap_or(&now);
 
                     conn.execute(
                         "INSERT OR IGNORE INTO download_history (id, title, url, output_path, format, quality, created_at)
@@ -185,7 +173,10 @@ pub fn run_legacy_migration(
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.extension().and_then(|e| e.to_str()) == Some("json") {
-                    if let (Some(stem), Ok(raw)) = (p.file_stem().and_then(|s| s.to_str()), std::fs::read_to_string(&p)) {
+                    if let (Some(stem), Ok(raw)) = (
+                        p.file_stem().and_then(|s| s.to_str()),
+                        std::fs::read_to_string(&p),
+                    ) {
                         if serde_json::from_str::<Value>(&raw).is_ok() {
                             conn.execute(
                                 "INSERT OR REPLACE INTO presets (name, config_json, updated_at) VALUES (?1, ?2, ?3)",
@@ -230,6 +221,9 @@ pub fn run_legacy_migration(
                     serde_json::json!({
                         "name": name,
                         "path": p.to_string_lossy(),
+                        "duration_s": 0.0,
+                        "sample_rate": 44100,
+                        "channels": 2
                     })
                 })
                 .collect();

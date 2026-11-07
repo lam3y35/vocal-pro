@@ -128,8 +128,9 @@ export const SeparationScreen: React.FC = () => {
                       </div>
                       <button
                         type="button"
+                        aria-label={`Remove ${filePath.split(/[\\/]/).pop()} from queue`}
                         onClick={() => removeFile(filePath)}
-                        className="text-slate-500 hover:text-[#FF5E7E] transition"
+                        className="text-slate-400 hover:text-[#FF5E7E] transition"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

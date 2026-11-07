@@ -90,6 +90,13 @@ def load_demucs_model(model_name: str, device: torch.device) -> Any:
             MODEL_CACHE[cache_key] = model
         return model
 
+    if os.environ.get("VOCALPRO_SIMULATE_CORRUPT_MODEL") == "1":
+        raise WorkerEngineError(
+            "MODEL_CORRUPT",
+            f"Model checkpoint for '{model_name}' is corrupted or truncated. Clear model cache and retry.",
+            detail="UnpicklingError / truncated checkpoint archive",
+        )
+
     try:
         model = get_model(model_name)
         model.to(device)
@@ -98,8 +105,14 @@ def load_demucs_model(model_name: str, device: torch.device) -> Any:
             MODEL_CACHE[cache_key] = model
         return model
     except Exception as exc:
+        err_str = str(exc).lower()
+        code = (
+            "MODEL_CORRUPT"
+            if any(k in err_str for k in ("corrupt", "unpickling", "eof", "archive", "zip", "hash", "checksum"))
+            else "MODEL_MISSING"
+        )
         raise WorkerEngineError(
-            "MODEL_MISSING",
+            code,
             f"Failed to load model '{model_name}': {exc}",
             detail=str(exc),
         ) from exc
@@ -182,55 +195,79 @@ def write_encoded_stem(
     wav_bit_depth: str = "PCM_16",
 ) -> None:
     """Write a (channels, samples) float32 array to disk once in the target format (fixes P-05 and P-17)."""
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise WorkerEngineError(
+            "OUTPUT_NOT_WRITABLE",
+            f"Output directory is not writable: {target_path.parent}",
+            detail=str(exc),
+        ) from exc
     audio_2d = np.clip(audio_ch.T, -1.0, 1.0).astype(np.float32)
 
     valid_subtypes = {"PCM_16", "PCM_24", "FLOAT"}
     subtype = wav_bit_depth.upper() if wav_bit_depth.upper() in valid_subtypes else "PCM_16"
 
     fmt = output_format.lower().lstrip(".")
-    if fmt == "wav":
-        sf.write(str(target_path), audio_2d, sr, subtype=subtype)
-        return
-    if fmt == "flac":
-        flac_sub = "PCM_24" if subtype in ("PCM_24", "FLOAT") else "PCM_16"
-        sf.write(str(target_path), audio_2d, sr, format="FLAC", subtype=flac_sub)
-        return
-    if fmt == "ogg":
-        sf.write(str(target_path), audio_2d, sr, format="OGG", subtype="VORBIS")
-        return
-    if fmt == "mp3":
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_wav = Path(tmp.name)
-        try:
-            sf.write(str(tmp_wav), audio_2d, sr, subtype="PCM_16")
-            proc = subprocess.run(
-                [
-                    ffmpeg_bin,
-                    "-y",
-                    "-i",
-                    str(tmp_wav),
-                    "-codec:a",
-                    "libmp3lame",
-                    "-b:a",
-                    audio_bitrate or "320k",
-                    str(target_path),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode != 0:
-                raise WorkerEngineError(
-                    "INTERNAL",
-                    f"MP3 encoding failed for {target_path.name}",
-                    detail=proc.stderr[-400:] if proc.stderr else None,
+    try:
+        if fmt == "wav":
+            sf.write(str(target_path), audio_2d, sr, subtype=subtype)
+            return
+        if fmt == "flac":
+            flac_sub = "PCM_24" if subtype in ("PCM_24", "FLOAT") else "PCM_16"
+            sf.write(str(target_path), audio_2d, sr, format="FLAC", subtype=flac_sub)
+            return
+        if fmt == "ogg":
+            sf.write(str(target_path), audio_2d, sr, format="OGG", subtype="VORBIS")
+            return
+        if fmt == "mp3":
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_wav = Path(tmp.name)
+            try:
+                sf.write(str(tmp_wav), audio_2d, sr, subtype="PCM_16")
+                proc = subprocess.run(
+                    [
+                        ffmpeg_bin,
+                        "-y",
+                        "-i",
+                        str(tmp_wav),
+                        "-codec:a",
+                        "libmp3lame",
+                        "-b:a",
+                        audio_bitrate or "320k",
+                        str(target_path),
+                    ],
+                    capture_output=True,
+                    text=True,
                 )
-        finally:
-            tmp_wav.unlink(missing_ok=True)
-        return
+                if proc.returncode != 0:
+                    raise WorkerEngineError(
+                        "INTERNAL",
+                        f"MP3 encoding failed for {target_path.name}",
+                        detail=proc.stderr[-400:] if proc.stderr else None,
+                    )
+            finally:
+                tmp_wav.unlink(missing_ok=True)
+            return
 
-    # Default fallback to WAV
-    sf.write(str(target_path), audio_2d, sr, subtype=subtype)
+        # Default fallback to WAV
+        sf.write(str(target_path), audio_2d, sr, subtype=subtype)
+    except WorkerEngineError:
+        raise
+    except OSError as exc:
+        raise WorkerEngineError(
+            "OUTPUT_NOT_WRITABLE",
+            f"Failed to write output stem {target_path.name}: {exc}",
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        if "system error" in str(exc).lower() or "permission" in str(exc).lower():
+            raise WorkerEngineError(
+                "OUTPUT_NOT_WRITABLE",
+                f"Permission denied writing {target_path.name}: {exc}",
+                detail=str(exc),
+            ) from exc
+        raise
 
 
 def normalize_duration_array(audio_ch: np.ndarray, target_samples: int, sr: int = 44100) -> np.ndarray:
@@ -302,6 +339,7 @@ def _infer_single_tensor(
     segment_s: Optional[float],
     cancel_event: threading.Event,
     on_segment_progress: Callable[[int, int, int, int, float], None],
+    fp16_inference: bool = False,
 ) -> dict[str, np.ndarray]:
     """Run demucs.apply.apply_model on a (2, N) float32 array with real segment progress & cancel."""
     if cancel_event.is_set():
@@ -347,7 +385,12 @@ def _infer_single_tensor(
         elif state == "start" and completed_segments == 0:
             on_segment_progress(0, segment_total, sub_idx, sub_tot, 0.0)
 
-    use_fp16 = bool(device.type == "cuda" and os.environ.get("VOCALPRO_DISABLE_FP16") != "1")
+    # Addendum #2: fp16 is strictly opt-in (False by default) so quality is never silently lowered
+    use_fp16 = bool(
+        fp16_inference
+        and device.type == "cuda"
+        and os.environ.get("VOCALPRO_DISABLE_FP16") != "1"
+    )
     mix_tensor = torch.from_numpy(mix_ch).unsqueeze(0).to(device)
     try:
         with torch.inference_mode():
@@ -415,7 +458,16 @@ def run_separation_job(
     # Determine output folder: if output_dir already ends with base_name, use it; else <output_dir>/<base_name>
     raw_out = Path(output_dir_str) if output_dir_str else (input_path.parent / "output_vocals" / base_name)
     output_dir = raw_out if raw_out.name == base_name else (raw_out / base_name)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        if not os.access(str(output_dir), os.W_OK):
+            raise PermissionError(f"Directory is read-only: {output_dir}")
+    except OSError as exc:
+        raise WorkerEngineError(
+            "OUTPUT_NOT_WRITABLE",
+            f"Output directory is not writable: {output_dir}",
+            detail=str(exc),
+        ) from exc
 
     # Apply Song Mode preset overrides if song_mode is enabled
     opts = dict(options)
@@ -503,6 +555,7 @@ def run_separation_job(
     overlap_ratio = (raw_overlap / segment_s) if raw_overlap >= 1.0 else raw_overlap
     overlap_ratio = min(max(overlap_ratio, 0.05), 0.75)
     shifts = int(opts.get("shifts", hw_profile.recommended_shifts))
+    fp16_inference = bool(opts.get("fp16_inference", False))
     auto_oom_fallback = bool(opts.get("auto_oom_fallback", True))
 
     def _infer_with_oom_recovery(
@@ -513,7 +566,15 @@ def run_separation_job(
         nonlocal device
         try:
             return _infer_single_tensor(
-                mdl, audio_arr, device, shifts, overlap_ratio, segment_s, cancel_event, prog_cb
+                mdl,
+                audio_arr,
+                device,
+                shifts,
+                overlap_ratio,
+                segment_s,
+                cancel_event,
+                prog_cb,
+                fp16_inference=fp16_inference,
             )
         except WorkerEngineError as exc:
             if exc.code == "OOM_CUDA" and auto_oom_fallback:
@@ -525,7 +586,15 @@ def run_separation_job(
                 device = torch.device("cpu")
                 cpu_mdl = load_demucs_model("htdemucs_ft" if ensemble_mode else model_name, device)
                 return _infer_single_tensor(
-                    cpu_mdl, audio_arr, device, 0, overlap_ratio, 4.0, cancel_event, prog_cb
+                    cpu_mdl,
+                    audio_arr,
+                    device,
+                    0,
+                    overlap_ratio,
+                    4.0,
+                    cancel_event,
+                    prog_cb,
+                    fp16_inference=False,
                 )
             raise
 

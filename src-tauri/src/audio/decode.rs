@@ -92,11 +92,7 @@ fn decode_with_symphonia(path: &Path) -> AppResult<DecodedAudio> {
         .codec_params
         .sample_rate
         .ok_or_else(|| AppError::Audio("Unknown sample rate".to_string()))?;
-    let mut channels = track
-        .codec_params
-        .channels
-        .map(|c| c.count())
-        .unwrap_or(2);
+    let mut channels = track.codec_params.channels.map(|c| c.count()).unwrap_or(2);
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
@@ -126,7 +122,9 @@ fn decode_with_symphonia(path: &Path) -> AppResult<DecodedAudio> {
                 let spec = *audio_buf.spec();
                 channels = spec.channels.count().max(1);
                 let duration = audio_buf.capacity() as u64;
-                if sample_buf.is_none() || sample_buf.as_ref().unwrap().capacity() < audio_buf.capacity() {
+                if sample_buf.is_none()
+                    || sample_buf.as_ref().unwrap().capacity() < audio_buf.capacity()
+                {
                     sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
                 }
                 if let Some(buf) = &mut sample_buf {
@@ -139,11 +137,7 @@ fn decode_with_symphonia(path: &Path) -> AppResult<DecodedAudio> {
         }
     }
 
-    let frames = if channels > 0 {
-        samples_interleaved.len() / channels
-    } else {
-        0
-    };
+    let frames = samples_interleaved.len().checked_div(channels).unwrap_or(0);
 
     if frames == 0 {
         return Err(AppError::Audio("Decoded 0 audio frames".to_string()));
@@ -173,7 +167,7 @@ fn decode_with_ffmpeg_fallback(path: &Path) -> AppResult<DecodedAudio> {
             "2",
             &tmp_wav.to_string_lossy(),
         ])
-        .stdout( std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
 

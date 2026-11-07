@@ -15,7 +15,7 @@ import torch
 from . import __version__
 from .analysis import analyze_audio_file
 from .engine import MODEL_POOL, JobCancelledError, WorkerEngineError, run_separation_job
-from .hardware import detect_hardware_profile
+from .hardware import detect_hardware_profile, run_hardware_calibration
 from .midi import stem_to_midi_file
 from .protocol import StdioProtocol
 
@@ -40,7 +40,7 @@ class WorkerApp:
         self.proto = StdioProtocol(isolate_fd=isolate_fd)
         self._cancel_events: dict[str, threading.Event] = {}
         self._cancel_lock = threading.Lock()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vocalpro-job")
+        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="vocalpro-job")
         self._shutdown_flag = threading.Event()
 
     def emit_ready(self, cmd_id: str | None = None) -> None:
@@ -170,6 +170,32 @@ class WorkerApp:
                 }
             )
 
+    def _run_calibrate_task(self, cmd: dict[str, Any]) -> None:
+        cmd_id = str(cmd.get("id", ""))
+        dur = float(cmd.get("duration_s", 2.0))
+        try:
+            cal = run_hardware_calibration(duration_s=dur).to_dict()
+            self.proto.send(
+                {
+                    "v": 1,
+                    "id": cmd_id,
+                    "event": "calibration_done",
+                    "calibration": cal,
+                }
+            )
+        except Exception as exc:
+            self.proto.send(
+                {
+                    "v": 1,
+                    "id": cmd_id,
+                    "event": "job_error",
+                    "job_id": cmd_id,
+                    "code": "INTERNAL",
+                    "message": f"Hardware calibration failed: {exc}",
+                    "detail": str(exc),
+                }
+            )
+
     def handle_command(self, cmd: dict[str, Any]) -> bool:
         """Dispatch a single command dict. Returns False when shutdown is requested."""
         cmd_name = cmd.get("cmd")
@@ -204,7 +230,8 @@ class WorkerApp:
             return True
 
         if cmd_name == "get_hardware_profile":
-            hw = detect_hardware_profile().to_dict()
+            mode = str(cmd.get("profile_mode") or "auto")
+            hw = detect_hardware_profile(profile_mode=mode).to_dict()
             self.proto.send(
                 {
                     "v": 1,
@@ -213,6 +240,10 @@ class WorkerApp:
                     "profile": hw,
                 }
             )
+            return True
+
+        if cmd_name == "calibrate_hardware":
+            self._executor.submit(self._run_calibrate_task, cmd)
             return True
 
         if cmd_name == "separate":

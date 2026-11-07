@@ -144,11 +144,8 @@ pub fn export_separate_custom_stems(
         if vol <= 0.0 {
             continue;
         }
-        let mut scaled: Vec<f32> = stem
-            .samples_interleaved
-            .iter()
-            .map(|&x| x * vol)
-            .collect();
+        let raw_samples = stem.read_all_interleaved()?;
+        let mut scaled: Vec<f32> = raw_samples.into_iter().map(|x| x * vol).collect();
         let peak = scaled.iter().fold(0.0_f32, |acc, &x| acc.max(x.abs()));
         if peak > 0.99 {
             let factor = 0.99 / peak;

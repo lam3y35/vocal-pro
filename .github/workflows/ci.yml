@@ -8,7 +8,7 @@ on:
 
 jobs:
   worker-and-dsp-golden-tests:
-    name: Python Worker & Golden Null-Test Suite
+    name: Python Worker & Golden Null-Test Suite (40 Tests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +21,13 @@ jobs:
         run: |
           pip install --extra-index-url https://download.pytorch.org/whl/cpu \
             torch torchaudio demucs numpy scipy soundfile librosa resampy noisereduce pytest jsonschema
-      - name: Generate Reference Set & Run Worker + Golden Null-Test Suite
+      - name: Generate Reference Set & Run Worker + Regression Suite (P-01..P-19)
         run: |
           python benchmarks/generate_reference_set.py
-          python benchmarks/run_old_engine.py || true
-          pytest worker/tests -v
+          PYTHONPATH=worker pytest worker/tests -v
 
   rust-core-tests:
-    name: Rust Core (Symphonia, Live Mixer, SQLite Migration, Worker Supervisor)
+    name: Rust Core (Symphonia, Streaming Mixer, SQLite Migration, Hardware, Queue)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,6 +35,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install numpy & soundfile for reference audio generation
+        run: pip install numpy soundfile
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -43,11 +47,16 @@ jobs:
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
           cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-      - name: Run Rust Unit & Integration Tests
-        if: matrix.os == 'ubuntu-latest'
+      - name: Run Cross-Platform Rust Integration Tests
         run: |
-          python3 benchmarks/generate_reference_set.py || true
-          cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_legacy_migration_imports_all_files_and_deduplicates_outputs test_native_symphonia_waveform_under_300ms_and_live_stem_mixer
+          python benchmarks/generate_reference_set.py
+          cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- \
+            test_legacy_migration_imports_all_files_and_deduplicates_outputs \
+            test_native_symphonia_waveform_under_300ms_and_live_stem_mixer \
+            test_streaming_mixer_6_stems_5_minutes_under_150mb_rss \
+            test_hardware_detection_all_6_tiers_battery_and_non_cuda_gpu \
+            test_settings_persistence_per_key_reset_and_json_import_export \
+            test_queue_priority_reorder_pause_resume_and_sqlite_persistence
 
   frontend-typecheck-and-build:
     name: React 19 + TypeScript Strict Build

@@ -1,4 +1,10 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
+#![allow(
+    unknown_lints,
+    clippy::too_many_arguments,
+    clippy::large_enum_variant,
+    clippy::chunks_exact_to_as_chunks
+)]
 
 pub mod audio;
 pub mod commands;

@@ -1,0 +1,330 @@
+{
+  "hardware": {
+    "os_name": "Linux",
+    "os_version": "6.12.105+",
+    "os_arch": "x86_64",
+    "cpu_model": "Intel(R) Xeon(R) 6985P-C",
+    "physical_cores": 2,
+    "logical_cores": 2,
+    "simd_features": [
+      "AVX-512",
+      "AVX2",
+      "AVX",
+      "FMA",
+      "SSE4.2"
+    ],
+    "total_ram_mb": 7947,
+    "available_ram_mb": 5946,
+    "disk_free_gb": 14.38,
+    "temp_drive_speed_mbps": 1408.5,
+    "power_source": "ac",
+    "on_battery": false,
+    "battery_percent": null,
+    "gpu_vendor": "none",
+    "gpu_driver_version": null,
+    "cuda_available": false,
+    "directml_available": false,
+    "mps_available": false,
+    "gpu_name": null,
+    "vram_mb": null,
+    "fp16_supported": false,
+    "non_cuda_gpu_note": null,
+    "hardware_fingerprint": "946dac9d5a6911e7",
+    "device_tier": "low_resource",
+    "tier_label": "Low-Resource / Compact Device (Safe Mode)",
+    "active_profile_mode": "balanced",
+    "profile_changes_label": "Balanced (AC Power): preserves legacy reference quality (shifts=1, overlap=0.25, segment=6.0s, fp32) with 1 worker(s) and 2 CPU threads/job",
+    "quality_impact_note": "100% legacy reference audio quality (matches legacy config.json segment=6, shifts=1).",
+    "warnings": [],
+    "recommended_device": "cpu",
+    "recommended_max_concurrent_jobs": 1,
+    "recommended_threads_per_job": 2,
+    "recommended_segment_s": 6.0,
+    "recommended_overlap": 0.25,
+    "recommended_shifts": 1,
+    "recommended_preset": "balanced",
+    "recommended_fp16": false,
+    "recommended_parallel_dsp": true,
+    "recommended_safe_mode": false
+  },
+  "cold_model_load_ms": 1157.46,
+  "tracks_quality": [
+    {
+      "track_id": "track_01",
+      "description": "Pop Lead Vocal + Harmonics + 120BPM Drums (44.1kHz Stereo)",
+      "raw_demucs_null_dbfs": -200.0,
+      "raw_demucs_sdr_db": 120.0,
+      "post_parity_null_dbfs": -61.7,
+      "post_parity_sdr_db": 21.93,
+      "log_mel_diff_db": 0.3624,
+      "legacy_lufs": -73.93,
+      "legacy_true_peak_dbfs": -33.47,
+      "new_parity_lufs": -73.97,
+      "new_parity_true_peak_dbfs": -33.46,
+      "new_enhanced_lufs": -73.97,
+      "new_enhanced_true_peak_dbfs": -33.46,
+      "max_seam_derivative": 0.0275,
+      "duration_diff_samples": 0
+    },
+    {
+      "track_id": "track_02",
+      "description": "Mono 48kHz Vocal & Instrumental Resample Test",
+      "raw_demucs_null_dbfs": -200.0,
+      "raw_demucs_sdr_db": 120.0,
+      "post_parity_null_dbfs": -61.48,
+      "post_parity_sdr_db": 21.87,
+      "log_mel_diff_db": 0.3228,
+      "legacy_lufs": -73.68,
+      "legacy_true_peak_dbfs": -33.38,
+      "new_parity_lufs": -73.65,
+      "new_parity_true_peak_dbfs": -33.32,
+      "new_enhanced_lufs": -73.65,
+      "new_enhanced_true_peak_dbfs": -33.32,
+      "max_seam_derivative": 0.0294,
+      "duration_diff_samples": 0
+    },
+    {
+      "track_id": "track_03",
+      "description": "Low-Level Quiet Mix (-30 dBFS Dynamic Range Test)",
+      "raw_demucs_null_dbfs": -200.0,
+      "raw_demucs_sdr_db": 120.0,
+      "post_parity_null_dbfs": -36.06,
+      "post_parity_sdr_db": 9.17,
+      "log_mel_diff_db": 1.4181,
+      "legacy_lufs": -92.32,
+      "legacy_true_peak_dbfs": -64.73,
+      "new_parity_lufs": -93.04,
+      "new_parity_true_peak_dbfs": -64.29,
+      "new_enhanced_lufs": -93.04,
+      "new_enhanced_true_peak_dbfs": -64.29,
+      "max_seam_derivative": 0.0008,
+      "duration_diff_samples": 0
+    },
+    {
+      "track_id": "track_04",
+      "description": "Hard-Clipped 0 dBFS Master Test",
+      "raw_demucs_null_dbfs": -200.0,
+      "raw_demucs_sdr_db": 120.0,
+      "post_parity_null_dbfs": -68.36,
+      "post_parity_sdr_db": 30.23,
+      "log_mel_diff_db": 0.1292,
+      "legacy_lufs": -64.92,
+      "legacy_true_peak_dbfs": -26.1,
+      "new_parity_lufs": -64.84,
+      "new_parity_true_peak_dbfs": -26.03,
+      "new_enhanced_lufs": -64.84,
+      "new_enhanced_true_peak_dbfs": -26.03,
+      "max_seam_derivative": 0.0647,
+      "duration_diff_samples": 0
+    },
+    {
+      "track_id": "track_05",
+      "description": "Alternating Silence & Vocal Phrases (VAD Gate Test)",
+      "raw_demucs_null_dbfs": -200.0,
+      "raw_demucs_sdr_db": 120.0,
+      "post_parity_null_dbfs": -62.11,
+      "post_parity_sdr_db": 20.49,
+      "log_mel_diff_db": 1.0766,
+      "legacy_lufs": -74.67,
+      "legacy_true_peak_dbfs": -32.37,
+      "new_parity_lufs": -74.72,
+      "new_parity_true_peak_dbfs": -32.33,
+      "new_enhanced_lufs": -74.72,
+      "new_enhanced_true_peak_dbfs": -32.33,
+      "max_seam_derivative": 0.0104,
+      "duration_diff_samples": 0
+    }
+  ],
+  "profile_quality_impact": {
+    "legacy_baseline_shifts1_ovl025_seg6": {
+      "elapsed_ms": 7254.58,
+      "sdr_vs_baseline_db": 120.0,
+      "null_vs_baseline_dbfs": -200.0
+    },
+    "max_quality_shifts1_ovl025_seg78": {
+      "elapsed_ms": 7592.05,
+      "sdr_vs_baseline_db": -0.24,
+      "null_vs_baseline_dbfs": -34.12,
+      "note": "7.8s native transformer window (fewer segment boundaries than 6.0s)"
+    },
+    "balanced_auto_shifts1_ovl025_seg6": {
+      "elapsed_ms": 7412.77,
+      "sdr_vs_baseline_db": 120.0,
+      "null_vs_baseline_dbfs": -200.0,
+      "note": "Exact bit-identical match to legacy baseline"
+    },
+    "eco_battery_shifts0_ovl015_seg4": {
+      "elapsed_ms": 7967.41,
+      "sdr_vs_baseline_db": -1.7,
+      "null_vs_baseline_dbfs": -32.66,
+      "speedup_factor": 0.91,
+      "note": "Explicit Eco/Battery saver trade-off (shifts 1->0, overlap 0.25->0.15, segment 4.0s)"
+    },
+    "oom_fallback_shifts0_ovl025_seg4": {
+      "elapsed_ms": 7327.3,
+      "sdr_vs_baseline_db": -1.33,
+      "null_vs_baseline_dbfs": -33.03,
+      "speedup_factor": 0.99,
+      "note": "Emergency VRAM OOM fallback (completes job on CPU instead of crashing)"
+    },
+    "fp16_quantized_vs_fp32": {
+      "elapsed_ms": 7554.52,
+      "sdr_vs_baseline_db": 73.4,
+      "null_vs_baseline_dbfs": -107.76,
+      "note": "IEEE 754 fp16 precision (~-72 dBFS quantization floor vs -140 dBFS fp32); kept opt-in (fp16_inference=False by default)"
+    }
+  },
+  "old_vs_new_performance": {
+    "legacy_v2": {
+      "runs": [
+        {
+          "decode_ms": 2.15,
+          "inference_ms": 7822.29,
+          "postprocess_ms": 189.83,
+          "write_ms": 9.37,
+          "total_ms": 8023.64
+        },
+        {
+          "decode_ms": 1.97,
+          "inference_ms": 7554.29,
+          "postprocess_ms": 197.74,
+          "write_ms": 12.84,
+          "total_ms": 7766.84
+        },
+        {
+          "decode_ms": 1.89,
+          "inference_ms": 7114.09,
+          "postprocess_ms": 204.28,
+          "write_ms": 10.59,
+          "total_ms": 7330.85
+        }
+      ],
+      "median": {
+        "decode_ms": 1.97,
+        "inference_ms": 7554.29,
+        "postprocess_ms": 197.74,
+        "write_ms": 10.59,
+        "total_ms": 7766.84
+      },
+      "spread": {
+        "decode_ms": 0.26,
+        "inference_ms": 708.2,
+        "postprocess_ms": 14.45,
+        "write_ms": 3.47,
+        "total_ms": 692.79
+      }
+    },
+    "rebuild_v3": {
+      "runs": [
+        {
+          "decode_ms": 1.81,
+          "inference_ms": 7353.14,
+          "postprocess_ms": 173.18,
+          "write_ms": 11.67,
+          "total_ms": 7539.8
+        },
+        {
+          "decode_ms": 2.45,
+          "inference_ms": 7578.91,
+          "postprocess_ms": 166.17,
+          "write_ms": 19.2,
+          "total_ms": 7766.73
+        },
+        {
+          "decode_ms": 1.9,
+          "inference_ms": 7315.73,
+          "postprocess_ms": 160.93,
+          "write_ms": 13.23,
+          "total_ms": 7491.79
+        }
+      ],
+      "median": {
+        "decode_ms": 1.9,
+        "inference_ms": 7353.14,
+        "postprocess_ms": 166.17,
+        "write_ms": 13.23,
+        "total_ms": 7539.8
+      },
+      "spread": {
+        "decode_ms": 0.64,
+        "inference_ms": 263.18,
+        "postprocess_ms": 12.25,
+        "write_ms": 7.53,
+        "total_ms": 274.94
+      }
+    }
+  },
+  "concurrency_scaling": {
+    "1_workers": {
+      "workers": 1,
+      "threads_per_worker": 2,
+      "rss_per_worker_mb": [
+        1250
+      ],
+      "total_pool_rss_mb": 1250,
+      "separate_model_copy_per_process": true,
+      "batch_4_jobs_elapsed_s": 9.095,
+      "jobs_per_minute": 26.39
+    },
+    "2_workers": {
+      "workers": 2,
+      "threads_per_worker": 1,
+      "rss_per_worker_mb": [
+        962,
+        938
+      ],
+      "total_pool_rss_mb": 1900,
+      "separate_model_copy_per_process": true,
+      "batch_4_jobs_elapsed_s": 8.075,
+      "jobs_per_minute": 29.72
+    },
+    "3_workers": {
+      "workers": 3,
+      "threads_per_worker": 1,
+      "rss_per_worker_mb": [
+        926,
+        634,
+        635
+      ],
+      "total_pool_rss_mb": 2195,
+      "separate_model_copy_per_process": true,
+      "batch_4_jobs_elapsed_s": 8.995,
+      "jobs_per_minute": 26.68
+    },
+    "4_workers": {
+      "workers": 4,
+      "threads_per_worker": 1,
+      "rss_per_worker_mb": [
+        634,
+        634,
+        634,
+        634
+      ],
+      "total_pool_rss_mb": 2536,
+      "separate_model_copy_per_process": true,
+      "batch_4_jobs_elapsed_s": 12.517,
+      "jobs_per_minute": 19.17
+    }
+  },
+  "chunked_long_file": {
+    "input_samples": 529200,
+    "output_samples": 529200,
+    "duration_exact_match": true,
+    "max_seam_derivative": 0.1749,
+    "rss_mb": 1215
+  },
+  "soak_100_jobs": {
+    "rss_by_job_mb": {
+      "job_1": 1215,
+      "job_10": 1215,
+      "job_25": 1215,
+      "job_50": 1215,
+      "job_75": 1215,
+      "job_100": 1215
+    },
+    "rss_job_10_mb": 1215,
+    "rss_job_100_mb": 1215,
+    "growth_pct_after_warmup": 0.0,
+    "passed_under_5pct_gate": true
+  }
+}

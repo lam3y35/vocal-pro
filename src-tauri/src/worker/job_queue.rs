@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+
 use crate::worker::protocol::{JobOptions, StemOutput};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +39,10 @@ impl JobStatus {
     }
 }
 
+fn default_priority() -> String {
+    "normal".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobRecord {
     pub job_id: String,
@@ -60,6 +66,8 @@ pub struct JobRecord {
     pub elapsed_s: Option<f64>,
     #[serde(default)]
     pub worker_slot: Option<u32>,
+    #[serde(default = "default_priority")]
+    pub priority: String,
 }
 
 #[derive(Default)]
@@ -79,6 +87,23 @@ impl JobQueue {
         input_path: String,
         output_dir: String,
         options: JobOptions,
+    ) -> JobRecord {
+        self.enqueue_with_priority(
+            job_id,
+            input_path,
+            output_dir,
+            options,
+            "normal".to_string(),
+        )
+    }
+
+    pub fn enqueue_with_priority(
+        &mut self,
+        job_id: String,
+        input_path: String,
+        output_dir: String,
+        options: JobOptions,
+        priority: String,
     ) -> JobRecord {
         let now = chrono::Utc::now().to_rfc3339();
         let rec = JobRecord {
@@ -102,12 +127,56 @@ impl JobQueue {
             created_at: now,
             elapsed_s: None,
             worker_slot: None,
+            priority,
         };
         if !self.jobs.contains_key(&job_id) {
             self.order.push(job_id.clone());
         }
         self.jobs.insert(job_id, rec.clone());
         rec
+    }
+
+    pub fn restore_records(&mut self, records: Vec<JobRecord>) {
+        for rec in records {
+            if !self.jobs.contains_key(&rec.job_id) {
+                self.order.push(rec.job_id.clone());
+            }
+            self.jobs.insert(rec.job_id.clone(), rec);
+        }
+    }
+
+    pub fn set_priority(&mut self, job_id: &str, priority: &str) -> Option<JobRecord> {
+        let rec = self.jobs.get_mut(job_id)?;
+        rec.priority = priority.to_lowercase();
+        let updated = rec.clone();
+        self.sort_queued_by_priority();
+        Some(updated)
+    }
+
+    pub fn reorder(&mut self, job_id: &str, new_index: usize) -> bool {
+        let Some(pos) = self.order.iter().position(|id| id == job_id) else {
+            return false;
+        };
+        let id = self.order.remove(pos);
+        let clamped = new_index.min(self.order.len());
+        self.order.insert(clamped, id);
+        true
+    }
+
+    fn sort_queued_by_priority(&mut self) {
+        let rank = |p: &str| match p {
+            "high" => 0,
+            "normal" => 1,
+            "low" => 2,
+            _ => 1,
+        };
+        let jobs_ref = &self.jobs;
+        self.order.sort_by_key(|id| {
+            jobs_ref
+                .get(id)
+                .map(|r| rank(r.priority.as_str()))
+                .unwrap_or(1)
+        });
     }
 
     pub fn assign_slot(&mut self, job_id: &str, slot_id: u32) {

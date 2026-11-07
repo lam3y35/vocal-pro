@@ -77,6 +77,7 @@ export interface JobOptions {
   hf_boost_db: number;
   enable_loudness_normalize: boolean;
   auto_oom_fallback: boolean;
+  fp16_inference?: boolean;
 }
 
 export interface StemOutput {
@@ -108,6 +109,7 @@ export interface JobRecord {
   created_at: string;
   elapsed_s: number | null;
   worker_slot?: number | null;
+  priority?: JobPriority;
 }
 
 export interface OutputFolderEntry {
@@ -174,6 +176,9 @@ export interface WorkerHealth {
   slots?: WorkerSlotStatus[];
 }
 
+export type PerformanceProfileMode = "Auto" | "Eco" | "Balanced" | "Max Quality";
+export type JobPriority = "high" | "normal" | "low";
+
 export interface HardwareProfile {
   os_name: string;
   os_arch: string;
@@ -184,13 +189,22 @@ export interface HardwareProfile {
   total_ram_mb: number;
   available_ram_mb: number;
   disk_free_gb: number;
+  temp_drive_speed_mb_s?: number;
+  on_battery?: boolean;
+  power_source?: string;
   cuda_available: boolean;
   mps_available: boolean;
   gpu_name: string | null;
   vram_mb: number | null;
+  non_cuda_gpu_name?: string | null;
+  non_cuda_gpu_note?: string | null;
   fp16_supported: boolean;
   device_tier: string;
   tier_label: string;
+  active_profile_mode?: PerformanceProfileMode;
+  profile_changes_label?: string;
+  quality_impact_note?: string;
+  hardware_fingerprint?: string;
   recommended_device: DeviceOption;
   recommended_max_concurrent_jobs: number;
   recommended_threads_per_job: number;
@@ -286,4 +300,5 @@ export const DEFAULT_JOB_OPTIONS: JobOptions = {
   hf_boost_db: 3.0,
   enable_loudness_normalize: true,
   auto_oom_fallback: true,
+  fp16_inference: false,
 };
