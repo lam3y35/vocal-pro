@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vocalpro-worker"
+version = "3.0.0"
+description = "VocalPro v3 AI Separation, DSP, Analysis, and MIDI Worker (stdio JSON-Lines)"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "torch>=2.3.0",
+    "torchaudio>=2.3.0",
+    "demucs>=4.0.1",
+    "numpy>=1.26.4",
+    "scipy>=1.13.1",
+    "soundfile>=0.12.1",
+    "librosa>=0.10.2.post1",
+    "noisereduce>=3.0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "jsonschema>=4.20.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vocalpro_worker*"]

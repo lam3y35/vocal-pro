@@ -1,0 +1,555 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vocalpro.local/schemas/worker-protocol.schema.json",
+  "title": "VocalPro Worker Protocol v1",
+  "description": "Typed JSON-Lines protocol between the Tauri/Rust supervisor (stdin) and the Python AI worker (stdout).",
+  "oneOf": [
+    { "$ref": "#/$defs/HostCommand" },
+    { "$ref": "#/$defs/WorkerEvent" }
+  ],
+  "$defs": {
+    "JobOptions": {
+      "type": "object",
+      "required": [
+        "model",
+        "output_mode",
+        "output_format",
+        "audio_bitrate",
+        "device",
+        "shifts",
+        "overlap",
+        "segment"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": [
+            "htdemucs",
+            "htdemucs_ft",
+            "htdemucs_6s",
+            "hdemucs_mmi",
+            "mdx",
+            "mdx_extra",
+            "mdx_q",
+            "mdx_extra_q"
+          ]
+        },
+        "output_mode": {
+          "type": "string",
+          "enum": ["vocals", "background", "karaoke", "all_stems"]
+        },
+        "output_format": {
+          "type": "string",
+          "enum": ["wav", "flac", "mp3"]
+        },
+        "audio_bitrate": {
+          "type": "string",
+          "default": "320k"
+        },
+        "output_all_stems": {
+          "type": "boolean",
+          "default": false
+        },
+        "device": {
+          "type": "string",
+          "enum": ["auto", "cuda", "cpu"]
+        },
+        "shifts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 1
+        },
+        "overlap": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 30.0,
+          "default": 0.25
+        },
+        "segment": {
+          "type": ["number", "null"],
+          "default": 6.0
+        },
+        "large_file_threshold_minutes": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 180,
+          "default": 15
+        },
+        "chunk_duration_minutes": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 12
+        },
+        "overlap_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30,
+          "default": 5
+        },
+        "output_video": {
+          "type": "boolean",
+          "default": true
+        },
+        "video_output_mode": {
+          "type": "string",
+          "enum": ["both", "video_only", "audio_only"],
+          "default": "both"
+        },
+        "ffmpeg_faststart": {
+          "type": "boolean",
+          "default": true
+        },
+        "ffmpeg_path": {
+          "type": "string",
+          "default": ""
+        },
+        "include_sfx": {
+          "type": "boolean",
+          "default": true
+        },
+        "save_background_track": {
+          "type": "boolean",
+          "default": false
+        },
+        "generate_comparison_samples": {
+          "type": "boolean",
+          "default": false
+        },
+        "trim_silence": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_vocal_gate": {
+          "type": "boolean",
+          "default": true
+        },
+        "enable_spectral_denoise": {
+          "type": "boolean",
+          "default": true
+        },
+        "gate_threshold_db": {
+          "type": "number",
+          "minimum": -70.0,
+          "maximum": -20.0,
+          "default": -55.0
+        },
+        "gate_floor_db": {
+          "type": "number",
+          "minimum": -90.0,
+          "maximum": 0.0,
+          "default": -60.0
+        },
+        "denoise_strength": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.55
+        },
+        "min_vocal_duration": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 2.0,
+          "default": 0.08
+        },
+        "enable_multiband_denoise": {
+          "type": "boolean",
+          "default": false
+        },
+        "denoise_band_split_hz": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 2,
+          "default": [250.0, 6000.0]
+        },
+        "denoise_strength_low": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.35
+        },
+        "denoise_strength_mid": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.10
+        },
+        "denoise_strength_high": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.25
+        },
+        "enable_noise_profile": {
+          "type": "boolean",
+          "default": false
+        },
+        "adaptive_gate_floor": {
+          "type": "boolean",
+          "default": false
+        },
+        "enable_sfx_separation": {
+          "type": "boolean",
+          "default": false
+        },
+        "sfx_separation_margin_db": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 15.0,
+          "default": 5.0
+        },
+        "sfx_kernel_size": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 51,
+          "default": 15
+        },
+        "sfx_margin_harmonic_db": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 15.0,
+          "default": 3.0
+        },
+        "sfx_margin_percussive_db": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 15.0,
+          "default": 1.0
+        },
+        "karaoke_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "ensemble_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "song_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "safe_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_threads": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 0
+        },
+        "cooldown_between_chunks_seconds": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 60.0,
+          "default": 0.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "HostCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "hello" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "ping" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "get_capabilities" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd", "job_id", "input_path", "output_dir", "options"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "separate" },
+            "job_id": { "type": "string" },
+            "input_path": { "type": "string" },
+            "output_dir": { "type": "string" },
+            "options": { "$ref": "#/$defs/JobOptions" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd", "job_id"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "cancel" },
+            "job_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd", "input_path"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "analyze" },
+            "input_path": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd", "stem_path", "output_midi_path"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "stem_to_midi" },
+            "stem_path": { "type": "string" },
+            "output_midi_path": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "cmd"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "cmd": { "const": "shutdown" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StemOutput": {
+      "type": "object",
+      "required": ["name", "path", "duration_s", "sample_rate", "channels"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "vocals",
+            "drums",
+            "bass",
+            "guitar",
+            "piano",
+            "other",
+            "background",
+            "karaoke",
+            "video_clean"
+          ]
+        },
+        "path": { "type": "string" },
+        "duration_s": { "type": "number" },
+        "sample_rate": { "type": "integer" },
+        "channels": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "WorkerEvent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["v", "event", "worker_version", "torch_version", "cuda_available"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "ready" },
+            "worker_version": { "type": "string" },
+            "torch_version": { "type": "string" },
+            "cuda_available": { "type": "boolean" },
+            "gpu_name": { "type": ["string", "null"] },
+            "vram_mb": { "type": ["integer", "null"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "pong" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "models", "devices", "ffmpeg_available"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "capabilities" },
+            "models": { "type": "array", "items": { "type": "string" } },
+            "devices": { "type": "array", "items": { "type": "string" } },
+            "ffmpeg_available": { "type": "boolean" },
+            "cuda_available": { "type": "boolean" },
+            "gpu_name": { "type": ["string", "null"] },
+            "vram_mb": { "type": ["integer", "null"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "v",
+            "event",
+            "job_id",
+            "phase",
+            "segment_index",
+            "segment_total",
+            "sub_model_index",
+            "sub_model_total",
+            "percent"
+          ],
+          "properties": {
+            "v": { "const": 1 },
+            "event": { "const": "progress" },
+            "job_id": { "type": "string" },
+            "phase": {
+              "type": "string",
+              "enum": [
+                "loading_model",
+                "decoding",
+                "inference",
+                "postprocess_sfx",
+                "postprocess_denoise",
+                "postprocess_gate",
+                "postprocess_eq",
+                "postprocess_normalize",
+                "writing",
+                "muxing_video"
+              ]
+            },
+            "segment_index": { "type": "integer", "minimum": 0 },
+            "segment_total": { "type": "integer", "minimum": 1 },
+            "sub_model_index": { "type": "integer", "minimum": 0 },
+            "sub_model_total": { "type": "integer", "minimum": 1 },
+            "percent": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+            "eta_s": { "type": ["number", "null"] },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "job_id", "output_dir", "stems", "elapsed_s"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "job_done" },
+            "job_id": { "type": "string" },
+            "output_dir": { "type": "string" },
+            "stems": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/StemOutput" }
+            },
+            "comparison_samples": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "elapsed_s": { "type": "number" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "job_id"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "job_cancelled" },
+            "job_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "job_id", "code", "message"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "job_error" },
+            "job_id": { "type": "string" },
+            "code": {
+              "type": "string",
+              "enum": [
+                "OOM_CUDA",
+                "OOM_RAM",
+                "DECODE_FAILED",
+                "MODEL_MISSING",
+                "DISK_FULL",
+                "INVALID_INPUT",
+                "INTERNAL"
+              ]
+            },
+            "message": { "type": "string" },
+            "detail": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "bpm", "key", "scale", "duration_s", "waveform"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "analysis_done" },
+            "bpm": { "type": "number" },
+            "key": { "type": "string" },
+            "scale": { "type": "string", "enum": ["major", "minor"] },
+            "duration_s": { "type": "number" },
+            "waveform": {
+              "type": "array",
+              "items": { "type": "number" }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "id", "event", "output_midi_path", "note_count"],
+          "properties": {
+            "v": { "const": 1 },
+            "id": { "type": "string" },
+            "event": { "const": "midi_done" },
+            "output_midi_path": { "type": "string" },
+            "note_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["v", "event", "level", "message"],
+          "properties": {
+            "v": { "const": 1 },
+            "event": { "const": "log" },
+            "level": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

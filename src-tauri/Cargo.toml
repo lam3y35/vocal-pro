@@ -1,0 +1,44 @@
+[package]
+name = "vocalpro"
+version = "3.0.0"
+description = "VocalPro v3 — Native Rust Core + Tauri v2 Shell + Python AI Worker"
+authors = ["Moaz (Lam3y)"]
+edition = "2021"
+
+[lib]
+name = "vocalpro_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "vocalpro"
+path = "src/main.rs"
+
+[features]
+default = []
+# Enable full Tauri v2 WebView + CPAL hardware audio device on desktop targets with WebKit2GTK/WebView2 & ALSA/WASAPI
+desktop-shell = ["dep:tauri", "dep:cpal"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.40", features = ["full"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+symphonia = { version = "0.5.4", features = ["mp3", "flac", "wav", "ogg", "aac", "isomp4", "pcm"] }
+rubato = "0.16"
+hound = "3.5"
+sha2 = "0.10"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+dirs = "5.0"
+
+# Optional desktop hardware/webview crates (enabled in release/desktop builds)
+tauri = { version = "2.1", optional = true }
+cpal = { version = "0.15", optional = true }
+
+[dev-dependencies]
+tempfile = "3.13"

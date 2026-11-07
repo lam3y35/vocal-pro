@@ -1,0 +1,64 @@
+name: VocalPro v3 CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  worker-and-dsp-golden-tests:
+    name: Python Worker & Golden Null-Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FFmpeg & libsndfile
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libsndfile1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Worker Dependencies
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            torch torchaudio demucs numpy scipy soundfile librosa resampy noisereduce pytest jsonschema
+      - name: Generate Reference Set & Run Worker + Golden Null-Test Suite
+        run: |
+          python benchmarks/generate_reference_set.py
+          python benchmarks/run_old_engine.py || true
+          pytest worker/tests -v
+
+  rust-core-tests:
+    name: Rust Core (Symphonia, Live Mixer, SQLite Migration, Worker Supervisor)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Check formatting & Clippy
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+          cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - name: Run Rust Unit & Integration Tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 benchmarks/generate_reference_set.py || true
+          cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_legacy_migration_imports_all_files_and_deduplicates_outputs test_native_symphonia_waveform_under_300ms_and_live_stem_mixer
+
+  frontend-typecheck-and-build:
+    name: React 19 + TypeScript Strict Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install & Build Frontend
+        run: |
+          npm install
+          npm run typecheck
+          npm run build

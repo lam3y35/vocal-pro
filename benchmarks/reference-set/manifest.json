@@ -1,0 +1,39 @@
+{
+  "track_01_pop_stereo_44k.wav": {
+    "sr": 44100,
+    "channels": 2,
+    "duration_s": 12.0
+  },
+  "track_02_mono_48k.wav": {
+    "sr": 48000,
+    "channels": 1,
+    "duration_s": 10.0
+  },
+  "track_03_quiet_neg30dbfs.wav": {
+    "sr": 44100,
+    "channels": 2,
+    "duration_s": 8.0
+  },
+  "track_04_clipped_0dbfs.wav": {
+    "sr": 44100,
+    "channels": 2,
+    "duration_s": 8.0
+  },
+  "track_05_silence_sections.wav": {
+    "sr": 44100,
+    "channels": 2,
+    "duration_s": 12.0
+  },
+  "track_06_video_sample.mp4": {
+    "sr": 44100,
+    "channels": 2,
+    "duration_s": 8.0,
+    "video": true
+  },
+  "track_07_corrupt.wav": {
+    "corrupt": true
+  },
+  "track_08_zero_length.wav": {
+    "zero_length": true
+  }
+}

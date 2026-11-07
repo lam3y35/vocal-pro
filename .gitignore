@@ -1,0 +1,20 @@
+# Node / Frontend
+node_modules/
+dist/
+.pnpm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Generated binary audio/video fixtures (regenerated deterministically via benchmarks/generate_reference_set.py)
+benchmarks/reference-set/*.wav
+benchmarks/reference-set/*.mp4
+benchmarks/golden/*.wav
+benchmarks/golden/*.mid

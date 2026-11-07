@@ -1,0 +1,23 @@
+name: VocalPro v3 Release Packaging
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows-nsis:
+    name: Build Windows NSIS Installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Frontend Dependencies & Build UI
+        run: |
+          npm install
+          npm run build
+      - name: Build Rust Release Binary
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml
