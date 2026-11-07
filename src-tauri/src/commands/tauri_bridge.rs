@@ -8,15 +8,16 @@ pub mod bridge {
     use super::super::*;
     use crate::audio::mixer::MixerSnapshot;
     use crate::audio::waveform::WaveformSummary;
-    use crate::db::{
-        ChangelogRelease, DownloadHistoryEntry, OutputFolderEntry, SeparationHistoryEntry,
-    };
+    use crate::commands::AnalysisResult;
+    use crate::db::{DownloadHistoryEntry, OutputFolderEntry, SeparationHistoryEntry};
     use crate::models::ModelInfo;
-    use crate::system::HardwareProfile;
-    use crate::worker::protocol::{AnalysisResult, JobOptions, JobRecord, WorkerHealth};
+    use crate::system::{ChangelogRelease, HardwareProfile};
+    use crate::worker::job_queue::JobRecord;
+    use crate::worker::protocol::JobOptions;
+    use crate::worker::supervisor::WorkerHealth;
     use serde_json::Value;
     use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use tauri::State;
 
     #[tauri::command]
@@ -99,9 +100,11 @@ pub mod bridge {
         input_path: String,
         output_midi_path: String,
     ) -> Result<String, String> {
-        ctx.stem_to_midi(input_path, output_midi_path)
+        let (out, notes) = ctx
+            .stem_to_midi(input_path, output_midi_path)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        Ok(format!("{} ({} notes)", out, notes))
     }
 
     #[tauri::command]
@@ -158,11 +161,31 @@ pub mod bridge {
         ctx: State<'_, AppContext>,
         output_path: String,
         format: String,
-        bit_depth: Option<String>,
-        bitrate_kbps: Option<u32>,
+        bitrate: Option<String>,
     ) -> Result<String, String> {
-        ctx.mixer_export_mix(&output_path, &format, bit_depth.as_deref(), bitrate_kbps)
-            .map_err(|e| e.to_string())
+        let folder = Path::new(&output_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string());
+        let volumes = {
+            let guard = ctx.active_mixer.lock().unwrap();
+            if let Some(m) = guard.as_ref() {
+                m.snapshot()
+                    .stems
+                    .into_iter()
+                    .map(|s| (s.name, if s.mute { 0.0 } else { s.gain }))
+                    .collect()
+            } else {
+                HashMap::new()
+            }
+        };
+        ctx.mixer_export_mix(
+            &folder,
+            &volumes,
+            &format,
+            bitrate.as_deref().unwrap_or("320k"),
+        )
+        .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
@@ -170,11 +193,27 @@ pub mod bridge {
         ctx: State<'_, AppContext>,
         output_dir: String,
         format: String,
-        bit_depth: Option<String>,
-        bitrate_kbps: Option<u32>,
+        bitrate: Option<String>,
     ) -> Result<Vec<String>, String> {
-        ctx.mixer_export_separate(&output_dir, &format, bit_depth.as_deref(), bitrate_kbps)
-            .map_err(|e| e.to_string())
+        let volumes = {
+            let guard = ctx.active_mixer.lock().unwrap();
+            if let Some(m) = guard.as_ref() {
+                m.snapshot()
+                    .stems
+                    .into_iter()
+                    .map(|s| (s.name, if s.mute { 0.0 } else { s.gain }))
+                    .collect()
+            } else {
+                HashMap::new()
+            }
+        };
+        ctx.mixer_export_separate(
+            &output_dir,
+            &volumes,
+            &format,
+            bitrate.as_deref().unwrap_or("320k"),
+        )
+        .map_err(|e| e.to_string())
     }
 
     #[tauri::command]
