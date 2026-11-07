@@ -14,8 +14,8 @@ use crate::db::{
 use crate::error::{AppError, AppResult};
 use crate::models::{list_supported_models, ModelInfo};
 use crate::system::{
-    create_desktop_shortcut, download_media_url, export_diagnostic_bundle, get_changelog_releases,
-    register_file_associations, ChangelogRelease,
+    create_desktop_shortcut, detect_system_hardware, download_media_url, export_diagnostic_bundle,
+    get_changelog_releases, register_file_associations, ChangelogRelease, HardwareProfile,
 };
 use crate::worker::job_queue::JobRecord;
 use crate::worker::protocol::{HostCommandPayload, JobOptions, WorkerEvent};
@@ -391,6 +391,96 @@ impl AppContext {
     }
 
     pub fn save_settings(&self, updates: &HashMap<String, Value>) -> AppResult<()> {
+        if let Some(max_jobs) = updates.get("max_concurrent_jobs").and_then(|v| v.as_u64()) {
+            self.worker.set_max_concurrent_workers(max_jobs as usize);
+        }
         self.db.update_settings(updates)
+    }
+
+    pub fn set_max_concurrent_jobs(&self, max_jobs: usize) -> AppResult<WorkerHealth> {
+        self.worker.set_max_concurrent_workers(max_jobs);
+        let mut updates = HashMap::new();
+        updates.insert(
+            "max_concurrent_jobs".to_string(),
+            Value::from(self.worker.max_concurrent_workers() as u64),
+        );
+        self.db.update_settings(&updates)?;
+        Ok(self.worker.health())
+    }
+
+    pub fn detect_hardware(&self) -> HardwareProfile {
+        let h = self.worker.health();
+        detect_system_hardware(&self.app_data_dir, h.cuda_available, h.gpu_name, h.vram_mb)
+    }
+
+    pub fn auto_optimize_for_hardware(&self) -> AppResult<HardwareProfile> {
+        let profile = self.detect_hardware();
+        self.worker
+            .set_max_concurrent_workers(profile.recommended_max_concurrent_jobs as usize);
+
+        let mut updates = HashMap::new();
+        updates.insert(
+            "device".to_string(),
+            Value::String(profile.recommended_device.clone()),
+        );
+        updates.insert(
+            "max_concurrent_jobs".to_string(),
+            Value::from(profile.recommended_max_concurrent_jobs),
+        );
+        updates.insert(
+            "max_threads".to_string(),
+            Value::from(profile.recommended_threads_per_job),
+        );
+        updates.insert(
+            "segment".to_string(),
+            Value::from(profile.recommended_segment_s),
+        );
+        updates.insert(
+            "overlap".to_string(),
+            Value::from(profile.recommended_overlap),
+        );
+        updates.insert(
+            "shifts".to_string(),
+            Value::from(profile.recommended_shifts),
+        );
+        updates.insert(
+            "preset".to_string(),
+            Value::String(profile.recommended_preset.clone()),
+        );
+        updates.insert(
+            "safe_mode".to_string(),
+            Value::Bool(profile.recommended_safe_mode),
+        );
+        updates.insert(
+            "hardware_auto_optimize".to_string(),
+            Value::Bool(true),
+        );
+        self.db.update_settings(&updates)?;
+        Ok(profile)
+    }
+
+    pub async fn submit_batch_separations(
+        &self,
+        inputs: Vec<String>,
+        output_dir: String,
+        options: JobOptions,
+    ) -> AppResult<Vec<JobRecord>> {
+        let mut handles = Vec::with_capacity(inputs.len());
+        for input_path in inputs {
+            let ctx = self.clone();
+            let out = output_dir.clone();
+            let opts = options.clone();
+            handles.push(tokio::spawn(async move {
+                ctx.submit_separation_job(input_path, out, opts).await
+            }));
+        }
+        let mut records = Vec::with_capacity(handles.len());
+        for h in handles {
+            let res = h
+                .await
+                .map_err(|e| AppError::System(format!("Batch task join error: {}", e)))??;
+            records.push(res);
+        }
+        Ok(records)
     }
 }

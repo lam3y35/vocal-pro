@@ -21,6 +21,7 @@ from demucs.htdemucs import HTDemucs
 from demucs.pretrained import get_model
 
 from . import dsp
+from .hardware import apply_runtime_hardware_tuning
 
 MODEL_POOL: list[str] = [
     "htdemucs_ft",
@@ -178,17 +179,25 @@ def write_encoded_stem(
     output_format: str,
     audio_bitrate: str = "320k",
     ffmpeg_bin: str = "ffmpeg",
+    wav_bit_depth: str = "PCM_16",
 ) -> None:
     """Write a (channels, samples) float32 array to disk once in the target format (fixes P-05 and P-17)."""
     target_path.parent.mkdir(parents=True, exist_ok=True)
     audio_2d = np.clip(audio_ch.T, -1.0, 1.0).astype(np.float32)
 
+    valid_subtypes = {"PCM_16", "PCM_24", "FLOAT"}
+    subtype = wav_bit_depth.upper() if wav_bit_depth.upper() in valid_subtypes else "PCM_16"
+
     fmt = output_format.lower().lstrip(".")
     if fmt == "wav":
-        sf.write(str(target_path), audio_2d, sr, subtype="PCM_16")
+        sf.write(str(target_path), audio_2d, sr, subtype=subtype)
         return
     if fmt == "flac":
-        sf.write(str(target_path), audio_2d, sr, format="FLAC", subtype="PCM_16")
+        flac_sub = "PCM_24" if subtype in ("PCM_24", "FLOAT") else "PCM_16"
+        sf.write(str(target_path), audio_2d, sr, format="FLAC", subtype=flac_sub)
+        return
+    if fmt == "ogg":
+        sf.write(str(target_path), audio_2d, sr, format="OGG", subtype="VORBIS")
         return
     if fmt == "mp3":
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -221,7 +230,7 @@ def write_encoded_stem(
         return
 
     # Default fallback to WAV
-    sf.write(str(target_path), audio_2d, sr, subtype="PCM_16")
+    sf.write(str(target_path), audio_2d, sr, subtype=subtype)
 
 
 def normalize_duration_array(audio_ch: np.ndarray, target_samples: int, sr: int = 44100) -> np.ndarray:
@@ -338,20 +347,35 @@ def _infer_single_tensor(
         elif state == "start" and completed_segments == 0:
             on_segment_progress(0, segment_total, sub_idx, sub_tot, 0.0)
 
+    use_fp16 = bool(device.type == "cuda" and os.environ.get("VOCALPRO_DISABLE_FP16") != "1")
     mix_tensor = torch.from_numpy(mix_ch).unsqueeze(0).to(device)
     try:
-        with torch.no_grad():
-            estimates = apply_model(
-                model,
-                mix_tensor,
-                shifts=int(shifts),
-                split=True,
-                overlap=eff_overlap,
-                progress=False,
-                device=device,
-                segment=eff_segment,
-                callback=_demucs_cb,
-            )
+        with torch.inference_mode():
+            if use_fp16 and hasattr(torch, "autocast"):
+                with torch.autocast(device_type="cuda", dtype=torch.float16):
+                    estimates = apply_model(
+                        model,
+                        mix_tensor,
+                        shifts=int(shifts),
+                        split=True,
+                        overlap=eff_overlap,
+                        progress=False,
+                        device=device,
+                        segment=eff_segment,
+                        callback=_demucs_cb,
+                    )
+            else:
+                estimates = apply_model(
+                    model,
+                    mix_tensor,
+                    shifts=int(shifts),
+                    split=True,
+                    overlap=eff_overlap,
+                    progress=False,
+                    device=device,
+                    segment=eff_segment,
+                    callback=_demucs_cb,
+                )
     except JobCancelledError:
         raise
     except RuntimeError as exc:
@@ -366,7 +390,7 @@ def _infer_single_tensor(
         del mix_tensor
 
     # estimates shape: (1, num_sources, channels, samples)
-    est_np = estimates.squeeze(0).cpu().numpy()
+    est_np = estimates.squeeze(0).cpu().float().numpy()
     del estimates
     if device.type == "cuda":
         torch.cuda.empty_cache()
@@ -412,9 +436,7 @@ def run_separation_job(
         opts["shifts"] = 0
         opts["segment"] = min(float(opts.get("segment") or 4.0), 4.0)
 
-    max_threads = int(opts.get("max_threads") or 0)
-    if max_threads > 0:
-        torch.set_num_threads(max_threads)
+    hw_profile = apply_runtime_hardware_tuning(opts)
 
     req_device = str(opts.get("device", "auto")).lower()
     if req_device == "cuda" and torch.cuda.is_available():
@@ -455,7 +477,11 @@ def run_separation_job(
         )
 
     # Phase 1: Load model
-    send_progress("loading_model", 2.0, message=f"Loading model {model_name} on {device.type}...")
+    send_progress(
+        "loading_model",
+        2.0,
+        message=f"Loading model {model_name} on {device.type.upper()} ({hw_profile.tier_label})...",
+    )
     if cancel_event.is_set():
         raise JobCancelledError()
 
@@ -472,11 +498,36 @@ def run_separation_job(
     target_samples = mix_ch.shape[1]
 
     # Normalize overlap parameter: legacy config stored overlap=2 (seconds) or 0.25 (ratio)
-    raw_overlap = float(opts.get("overlap", 0.25))
-    segment_s = float(opts.get("segment") or 6.0)
+    raw_overlap = float(opts.get("overlap", hw_profile.recommended_overlap))
+    segment_s = float(opts.get("segment") or hw_profile.recommended_segment_s)
     overlap_ratio = (raw_overlap / segment_s) if raw_overlap >= 1.0 else raw_overlap
     overlap_ratio = min(max(overlap_ratio, 0.05), 0.75)
-    shifts = int(opts.get("shifts", 1))
+    shifts = int(opts.get("shifts", hw_profile.recommended_shifts))
+    auto_oom_fallback = bool(opts.get("auto_oom_fallback", True))
+
+    def _infer_with_oom_recovery(
+        mdl: Any,
+        audio_arr: np.ndarray,
+        prog_cb: Callable[[int, int, int, int, float], None],
+    ) -> dict[str, np.ndarray]:
+        nonlocal device
+        try:
+            return _infer_single_tensor(
+                mdl, audio_arr, device, shifts, overlap_ratio, segment_s, cancel_event, prog_cb
+            )
+        except WorkerEngineError as exc:
+            if exc.code == "OOM_CUDA" and auto_oom_fallback:
+                send_progress(
+                    "inference",
+                    12.0,
+                    message="VRAM limit reached — automatically falling back to CPU safe segment...",
+                )
+                device = torch.device("cpu")
+                cpu_mdl = load_demucs_model("htdemucs_ft" if ensemble_mode else model_name, device)
+                return _infer_single_tensor(
+                    cpu_mdl, audio_arr, device, 0, overlap_ratio, 4.0, cancel_event, prog_cb
+                )
+            raise
 
     # Phase 3: Inference (standard or large-file chunked)
     threshold_min = float(opts.get("large_file_threshold_minutes", 15.0))
@@ -506,9 +557,7 @@ def run_separation_job(
                 pct = 10.0 + 68.0 * chunk_frac
                 send_progress("inference", pct, s_i, s_t, m_i, m_t, eta, f"Chunk {_c_idx + 1}/{num_chunks}")
 
-            c_stems = _infer_single_tensor(
-                primary_model, sub_mix, device, shifts, overlap_ratio, segment_s, cancel_event, _chunk_prog
-            )
+            c_stems = _infer_with_oom_recovery(primary_model, sub_mix, _chunk_prog)
             for k, arr in c_stems.items():
                 stem_chunks.setdefault(k, []).append(arr.T)  # (samples, channels) for smooth_crossfade_chunks
 
@@ -527,9 +576,7 @@ def run_separation_job(
             pct = 10.0 + (34.0 if ensemble_mode else 68.0) * frac
             send_progress("inference", pct, s_i, s_t, m_i, m_t, eta, f"Separating segment {s_i}/{s_t}")
 
-        raw_stems = _infer_single_tensor(
-            primary_model, mix_ch, device, shifts, overlap_ratio, segment_s, cancel_event, _std_prog
-        )
+        raw_stems = _infer_with_oom_recovery(primary_model, mix_ch, _std_prog)
 
         if ensemble_mode and secondary_model is not None:
             def _ens_prog(s_i: int, s_t: int, m_i: int, m_t: int, eta: float) -> None:
@@ -537,9 +584,7 @@ def run_separation_job(
                 pct = 44.0 + 34.0 * frac
                 send_progress("inference", pct, s_i, s_t, m_i, m_t, eta, f"Ensemble pass 2 ({s_i}/{s_t})")
 
-            sec_stems = _infer_single_tensor(
-                secondary_model, mix_ch, device, shifts, overlap_ratio, segment_s, cancel_event, _ens_prog
-            )
+            sec_stems = _infer_with_oom_recovery(secondary_model, mix_ch, _ens_prog)
             for k in list(raw_stems.keys()):
                 if k in sec_stems:
                     raw_stems[k] = (0.5 * raw_stems[k] + 0.5 * sec_stems[k]).astype(np.float32)
@@ -603,9 +648,9 @@ def run_separation_job(
         denoise_strength_high=float(opts.get("denoise_strength_high", 0.25)),
         enable_noise_profile=bool(opts.get("enable_noise_profile", False)),
         adaptive_gate=bool(opts.get("adaptive_gate_floor", False)),
-        enable_hf_restore=True,
-        hf_boost_db=3.0,
-        enable_loudness_normalize=True,
+        enable_hf_restore=bool(opts.get("enable_hf_restore", True)),
+        hf_boost_db=float(opts.get("hf_boost_db", 3.0)),
+        enable_loudness_normalize=bool(opts.get("enable_loudness_normalize", True)),
         phase_cb=_dsp_phase_cb,
     )
 
@@ -624,6 +669,7 @@ def run_separation_job(
     send_progress("writing", 95.0, message="Writing output stems...")
     output_format = str(opts.get("output_format") or "wav").lower().lstrip(".")
     audio_bitrate = str(opts.get("audio_bitrate") or "320k")
+    wav_bit_depth = str(opts.get("wav_bit_depth") or "PCM_16")
     output_mode = str(opts.get("output_mode") or "vocals").lower()
     save_all_stems = (
         bool(opts.get("output_all_stems", False))
@@ -636,7 +682,7 @@ def run_separation_job(
 
     # 1. Primary Vocals stem
     vocals_path = output_dir / f"{base_name}_vocals.{output_format}"
-    write_encoded_stem(vocals_clean, sr, vocals_path, output_format, audio_bitrate, ffmpeg_bin)
+    write_encoded_stem(vocals_clean, sr, vocals_path, output_format, audio_bitrate, ffmpeg_bin, wav_bit_depth)
     written_stems.append(
         {
             "name": "vocals",
@@ -654,7 +700,7 @@ def run_separation_job(
         if k_peak > 1.0:
             karaoke_arr = karaoke_arr / k_peak * 0.99
         karaoke_path = output_dir / f"{base_name}_karaoke.wav"
-        write_encoded_stem(karaoke_arr, sr, karaoke_path, "wav", audio_bitrate, ffmpeg_bin)
+        write_encoded_stem(karaoke_arr, sr, karaoke_path, "wav", audio_bitrate, ffmpeg_bin, wav_bit_depth)
         written_stems.append(
             {
                 "name": "karaoke",
@@ -676,7 +722,7 @@ def run_separation_job(
         if bg_peak > 1.0:
             bg_arr = bg_arr / bg_peak * 0.99
         bg_path = output_dir / f"{base_name}_background.wav"
-        write_encoded_stem(bg_arr, sr, bg_path, "wav", audio_bitrate, ffmpeg_bin)
+        write_encoded_stem(bg_arr, sr, bg_path, "wav", audio_bitrate, ffmpeg_bin, wav_bit_depth)
         written_stems.append(
             {
                 "name": "background",
@@ -695,7 +741,7 @@ def run_separation_job(
             if s_peak > 1.0:
                 stem_arr = stem_arr / s_peak * 0.99
             stem_path = output_dir / f"{base_name}_{stem_key}.{output_format}"
-            write_encoded_stem(stem_arr, sr, stem_path, output_format, audio_bitrate, ffmpeg_bin)
+            write_encoded_stem(stem_arr, sr, stem_path, output_format, audio_bitrate, ffmpeg_bin, wav_bit_depth)
             written_stems.append(
                 {
                     "name": stem_key,

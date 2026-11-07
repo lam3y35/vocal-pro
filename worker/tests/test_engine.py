@@ -158,3 +158,37 @@ def test_corrupt_and_zero_length_inputs_raise_structured_error(tmp_path: Path) -
             emit_event=lambda _: None,
         )
     assert exc_corrupt.value.code == "DECODE_FAILED"
+
+
+def test_hardware_profile_detection_and_parallel_dsp_bit_exactness(tmp_path: Path) -> None:
+    """Verify hardware profile detection and that parallel 6-band DSP is 100% bit-identical to sequential DSP."""
+    import numpy as np
+    import soundfile as sf
+    from vocalpro_worker.dsp import separate_sfx, spectral_denoise_multiband
+    from vocalpro_worker.hardware import detect_hardware_profile
+
+    hw = detect_hardware_profile(tmp_path)
+    assert hw.logical_cores >= 1
+    assert hw.total_ram_mb > 0
+    assert hw.device_tier in {
+        "ultra_gpu",
+        "high_gpu",
+        "entry_gpu",
+        "workstation_cpu",
+        "standard_cpu",
+        "low_resource",
+    }
+    assert hw.recommended_max_concurrent_jobs >= 1
+
+    audio_2d, sr = sf.read(str(REF_DIR / "track_01_pop_stereo_44k.wav"), dtype="float32", always_2d=True)
+    audio_ch = audio_2d.T[:, : sr * 3]  # 3s stereo slice
+
+    seq_out = spectral_denoise_multiband(audio_ch, sr=sr, parallel=False)
+    par_out = spectral_denoise_multiband(audio_ch, sr=sr, parallel=True)
+    assert float(np.max(np.abs(seq_out - par_out))) == 0.0
+
+    h_seq, p_seq = separate_sfx(audio_ch, sr=sr, parallel=False)
+    h_par, p_par = separate_sfx(audio_ch, sr=sr, parallel=True)
+    assert float(np.max(np.abs(h_seq - h_par))) == 0.0
+    assert float(np.max(np.abs(p_seq - p_par))) == 0.0
+

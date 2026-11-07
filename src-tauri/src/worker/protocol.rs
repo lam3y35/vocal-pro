@@ -84,10 +84,26 @@ pub struct JobOptions {
     pub max_threads: u32,
     #[serde(default)]
     pub cooldown_between_chunks_seconds: f64,
+    #[serde(default = "default_wav_bit_depth")]
+    pub wav_bit_depth: String,
+    #[serde(default = "default_true")]
+    pub enable_hf_restore: bool,
+    #[serde(default = "default_hf_boost")]
+    pub hf_boost_db: f64,
+    #[serde(default = "default_true")]
+    pub enable_loudness_normalize: bool,
+    #[serde(default = "default_true")]
+    pub auto_oom_fallback: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+fn default_wav_bit_depth() -> String {
+    "PCM_16".to_string()
+}
+fn default_hf_boost() -> f64 {
+    3.0
 }
 fn default_large_threshold() -> f64 {
     15.0
@@ -185,6 +201,11 @@ impl Default for JobOptions {
             safe_mode: false,
             max_threads: 0,
             cooldown_between_chunks_seconds: 0.0,
+            wav_bit_depth: "PCM_16".to_string(),
+            enable_hf_restore: true,
+            hf_boost_db: 3.0,
+            enable_loudness_normalize: true,
+            auto_oom_fallback: true,
         }
     }
 }

@@ -213,3 +213,70 @@ async fn test_rust_supervisor_and_python_worker_end_to_end() {
     ctx.export_diagnostics(&diag_zip).unwrap();
     assert!(diag_zip.is_file() && diag_zip.metadata().unwrap().len() > 100);
 }
+
+#[tokio::test]
+async fn test_multi_process_parallel_worker_pool_and_hardware_auto_optimize() {
+    let tmp = TempDir::new().unwrap();
+    let app_data = tmp.path().join("VocalProPool");
+    let python_bin = PathBuf::from("/home/antigravity/.venv/bin/python");
+    let worker_dir = repo_root().join("worker");
+
+    let ctx = AppContext::new(app_data.clone(), python_bin, worker_dir, true).unwrap();
+    ctx.start_worker().unwrap();
+
+    // 1. Verify hardware auto-detection and auto-optimization
+    let hw = ctx.auto_optimize_for_hardware().unwrap();
+    assert!(hw.logical_cores >= 1);
+    assert!(hw.total_ram_mb > 0);
+    assert!(!hw.device_tier.is_empty());
+
+    let settings = ctx.get_settings().unwrap();
+    assert_eq!(
+        settings.get("hardware_auto_optimize").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+
+    // 2. Configure 2 parallel worker processes and submit 2 tracks simultaneously
+    ctx.set_max_concurrent_jobs(2).unwrap();
+
+    let ref_dir = repo_root().join("benchmarks").join("reference-set");
+    let track1 = ref_dir.join("track_01_pop_stereo_44k.wav");
+    let track2 = ref_dir.join("track_02_mono_48k.wav");
+    let out_dir = tmp.path().join("batch_out");
+
+    let mut opts = JobOptions::default();
+    opts.model = "htdemucs".to_string();
+    opts.shifts = 0;
+    opts.segment = Some(4.0);
+    opts.enable_vocal_gate = false;
+    opts.enable_spectral_denoise = false;
+
+    let results = ctx
+        .submit_batch_separations(
+            vec![
+                track1.to_string_lossy().to_string(),
+                track2.to_string_lossy().to_string(),
+            ],
+            out_dir.to_string_lossy().to_string(),
+            opts,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    for rec in &results {
+        assert_eq!(
+            rec.status,
+            vocalpro_lib::worker::job_queue::JobStatus::Done
+        );
+        assert!(rec.worker_slot.is_some());
+    }
+
+    // Both worker slots (slot 0 and slot 1) must have been spawned with distinct OS PIDs
+    let health = ctx.worker_health();
+    assert_eq!(health.max_concurrent_workers, 2);
+    assert_eq!(health.slots.len(), 2);
+    assert!(health.slots[0].running && health.slots[1].running);
+    assert_ne!(health.slots[0].pid, health.slots[1].pid);
+}
+

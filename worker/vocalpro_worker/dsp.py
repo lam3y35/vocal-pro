@@ -232,12 +232,15 @@ def separate_sfx(
     kernel_size: int = 31,
     margin_harmonic_db: Optional[float] = None,
     margin_percussive_db: Optional[float] = None,
+    parallel: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Separate a mixed audio signal into music (harmonic) and SFX (percussive) using HPSS.
 
     Returns:
         (harmonic, percussive) tuple, each with same shape as input.
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     was_1d = audio.ndim == 1
     if was_1d:
         audio = audio[np.newaxis, :]
@@ -251,14 +254,24 @@ def separate_sfx(
     else:
         margin = margin_db
 
-    for ch in range(channels):
+    def _run_hpss_ch(ch_idx: int) -> tuple[int, np.ndarray, np.ndarray]:
         h, p = librosa.effects.hpss(
-            audio[ch],
+            audio[ch_idx],
             kernel_size=kernel_size,
             margin=margin,
         )
-        harmonic[ch] = h
-        percussive[ch] = p
+        return ch_idx, h, p
+
+    if parallel and channels > 1:
+        with ThreadPoolExecutor(max_workers=channels) as pool:
+            for ch_idx, h, p in pool.map(_run_hpss_ch, range(channels)):
+                harmonic[ch_idx] = h
+                percussive[ch_idx] = p
+    else:
+        for ch in range(channels):
+            _, h, p = _run_hpss_ch(ch)
+            harmonic[ch] = h
+            percussive[ch] = p
 
     if was_1d:
         harmonic = harmonic.squeeze(0)
@@ -280,8 +293,11 @@ def spectral_denoise_multiband(
     strength_high: float = 0.80,
     noise_sample: Optional[np.ndarray] = None,
     n_fft: int = 1024,
+    parallel: bool = True,
 ) -> np.ndarray:
-    """Multi-band spectral denoising with per-band strength."""
+    """Multi-band spectral denoising with per-band strength (parallelized across 3 bands x 2 channels, fixing P-04)."""
+    from concurrent.futures import ThreadPoolExecutor
+
     was_1d = audio.ndim == 1
     if was_1d:
         audio = audio[np.newaxis, :]
@@ -305,18 +321,39 @@ def spectral_denoise_multiband(
 
     denoised = np.zeros_like(audio)
 
+    # Split bands per channel first
+    band_tasks: list[tuple[int, str, np.ndarray, float]] = []
     for ch in range(channels):
         signal = audio[ch]
         low = sosfiltfilt(sos_low, signal)
         high = sosfiltfilt(sos_high, signal)
         mid = signal - low - high
+        band_tasks.append((ch, "low", low, strength_low))
+        band_tasks.append((ch, "mid", mid, strength_mid))
+        band_tasks.append((ch, "high", high, strength_high))
 
+    def _denoise_band(task: tuple[int, str, np.ndarray, float]) -> tuple[int, str, np.ndarray]:
+        ch_idx, band_name, band_sig, prop = task
         with np.errstate(invalid="ignore", divide="ignore"):
-            low_d = nr.reduce_noise(y=low, prop_decrease=strength_low, **kwargs)
-            mid_d = nr.reduce_noise(y=mid, prop_decrease=strength_mid, **kwargs)
-            high_d = nr.reduce_noise(y=high, prop_decrease=strength_high, **kwargs)
+            out = nr.reduce_noise(y=band_sig, prop_decrease=prop, **kwargs)
+        return ch_idx, band_name, out
 
-        denoised[ch] = low_d + mid_d + high_d
+    band_results: dict[tuple[int, str], np.ndarray] = {}
+    if parallel and len(band_tasks) > 1:
+        with ThreadPoolExecutor(max_workers=min(6, len(band_tasks))) as pool:
+            for ch_idx, band_name, out in pool.map(_denoise_band, band_tasks):
+                band_results[(ch_idx, band_name)] = out
+    else:
+        for t in band_tasks:
+            ch_idx, band_name, out = _denoise_band(t)
+            band_results[(ch_idx, band_name)] = out
+
+    for ch in range(channels):
+        denoised[ch] = (
+            band_results[(ch, "low")]
+            + band_results[(ch, "mid")]
+            + band_results[(ch, "high")]
+        )
 
     if was_1d:
         denoised = denoised.squeeze(0)

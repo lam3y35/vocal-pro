@@ -58,6 +58,8 @@ pub struct JobRecord {
     pub error_message: Option<String>,
     pub created_at: String,
     pub elapsed_s: Option<f64>,
+    #[serde(default)]
+    pub worker_slot: Option<u32>,
 }
 
 #[derive(Default)]
@@ -99,12 +101,19 @@ impl JobQueue {
             error_message: None,
             created_at: now,
             elapsed_s: None,
+            worker_slot: None,
         };
         if !self.jobs.contains_key(&job_id) {
             self.order.push(job_id.clone());
         }
         self.jobs.insert(job_id, rec.clone());
         rec
+    }
+
+    pub fn assign_slot(&mut self, job_id: &str, slot_id: u32) {
+        if let Some(rec) = self.jobs.get_mut(job_id) {
+            rec.worker_slot = Some(slot_id);
+        }
     }
 
     pub fn update_progress(

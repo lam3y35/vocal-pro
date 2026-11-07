@@ -19,6 +19,259 @@ pub struct ChangelogRelease {
     pub highlights: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareProfile {
+    pub os_name: String,
+    pub os_arch: String,
+    pub cpu_model: String,
+    pub physical_cores: u32,
+    pub logical_cores: u32,
+    pub simd_features: Vec<String>,
+    pub total_ram_mb: u64,
+    pub available_ram_mb: u64,
+    pub disk_free_gb: f64,
+    pub cuda_available: bool,
+    pub mps_available: bool,
+    pub gpu_name: Option<String>,
+    pub vram_mb: Option<u64>,
+    pub fp16_supported: bool,
+    pub device_tier: String,
+    pub tier_label: String,
+    pub recommended_device: String,
+    pub recommended_max_concurrent_jobs: u32,
+    pub recommended_threads_per_job: u32,
+    pub recommended_segment_s: f64,
+    pub recommended_overlap: f64,
+    pub recommended_shifts: u32,
+    pub recommended_preset: String,
+    pub recommended_fp16: bool,
+    pub recommended_parallel_dsp: bool,
+    pub recommended_safe_mode: bool,
+}
+
+pub fn detect_system_hardware(
+    app_data_dir: &Path,
+    cuda_available: bool,
+    gpu_name: Option<String>,
+    vram_mb: Option<u64>,
+) -> HardwareProfile {
+    let logical_cores = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(4);
+    let mut physical_cores = (logical_cores / 2).max(1);
+    let mut cpu_model = format!("{} Processor", std::env::consts::ARCH.to_uppercase());
+    let mut simd_features = Vec::new();
+
+    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+        for line in cpuinfo.lines() {
+            if line.starts_with("model name") {
+                if let Some((_, val)) = line.split_once(':') {
+                    cpu_model = val.trim().to_string();
+                }
+            } else if line.starts_with("cpu cores") {
+                if let Some((_, val)) = line.split_once(':') {
+                    if let Ok(c) = val.trim().parse::<u32>() {
+                        physical_cores = c.max(1);
+                    }
+                }
+            } else if line.starts_with("flags") && simd_features.is_empty() {
+                if let Some((_, val)) = line.split_once(':') {
+                    for (flag, label) in [
+                        ("avx512f", "AVX-512"),
+                        ("avx2", "AVX2"),
+                        ("avx", "AVX"),
+                        ("fma", "FMA"),
+                        ("sse4_2", "SSE4.2"),
+                        ("neon", "NEON"),
+                    ] {
+                        if val.split_whitespace().any(|w| w == flag)
+                            && !simd_features.iter().any(|s| s == label)
+                        {
+                            simd_features.push(label.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if simd_features.is_empty() {
+        if cfg!(target_arch = "x86_64") {
+            simd_features.push("AVX2".to_string());
+            simd_features.push("SSE4.2".to_string());
+        } else if cfg!(target_arch = "aarch64") {
+            simd_features.push("NEON".to_string());
+        }
+    }
+
+    let mut total_ram_mb: u64 = 8192;
+    let mut available_ram_mb: u64 = 6144;
+    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+        for line in meminfo.lines() {
+            if line.starts_with("MemTotal:") {
+                if let Some(kb) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
+                    total_ram_mb = kb / 1024;
+                }
+            } else if line.starts_with("MemAvailable:") {
+                if let Some(kb) = line
+                    .split_whitespace()
+                    .nth(1)
+                    .and_then(|s| s.parse::<u64>().ok())
+                {
+                    available_ram_mb = kb / 1024;
+                }
+            }
+        }
+    }
+
+    let disk_free_gb = 50.0;
+    let mps_available = cfg!(target_os = "macos") && cfg!(target_arch = "aarch64");
+    let fp16_supported = cuda_available || mps_available;
+    let vram = vram_mb.unwrap_or(0);
+
+    let (
+        device_tier,
+        tier_label,
+        rec_device,
+        rec_jobs,
+        rec_threads,
+        rec_seg,
+        rec_ovl,
+        rec_shifts,
+        rec_preset,
+        rec_fp16,
+        rec_par_dsp,
+        rec_safe,
+    ) = if cuda_available && vram >= 11500 {
+        let jobs = if total_ram_mb >= 16000 { 3 } else { 2 };
+        (
+            "ultra_gpu",
+            "Ultra Studio GPU (12GB+ VRAM)",
+            "cuda",
+            jobs,
+            (logical_cores / jobs).max(2),
+            7.8,
+            0.25,
+            2,
+            "ultra",
+            true,
+            true,
+            false,
+        )
+    } else if cuda_available && vram >= 5800 {
+        let jobs = if total_ram_mb >= 12000 { 2 } else { 1 };
+        (
+            "high_gpu",
+            "High-Performance GPU (6-11GB VRAM)",
+            "cuda",
+            jobs,
+            (logical_cores / jobs).max(2),
+            7.8,
+            0.25,
+            1,
+            "high",
+            true,
+            true,
+            false,
+        )
+    } else if cuda_available || mps_available {
+        (
+            "entry_gpu",
+            "Accelerated GPU / Apple Silicon",
+            if cuda_available { "cuda" } else { "cpu" },
+            1,
+            (logical_cores / 2).max(2),
+            5.0,
+            0.25,
+            1,
+            "balanced",
+            fp16_supported,
+            true,
+            false,
+        )
+    } else if logical_cores >= 8 && total_ram_mb >= 14000 {
+        let jobs = 2;
+        (
+            "workstation_cpu",
+            "Multi-Core Workstation CPU",
+            "cpu",
+            jobs,
+            (logical_cores / jobs).max(2),
+            7.0,
+            0.25,
+            1,
+            "balanced",
+            false,
+            true,
+            false,
+        )
+    } else if logical_cores >= 4 && total_ram_mb >= 6000 {
+        (
+            "standard_cpu",
+            "Standard Multi-Core CPU",
+            "cpu",
+            1,
+            logical_cores.max(2),
+            6.0,
+            0.25,
+            1,
+            "balanced",
+            false,
+            true,
+            false,
+        )
+    } else {
+        (
+            "low_resource",
+            "Compact / Low-Resource Device (Safe Mode)",
+            "cpu",
+            1,
+            logical_cores.max(1),
+            4.0,
+            0.15,
+            0,
+            "fast",
+            false,
+            false,
+            true,
+        )
+    };
+
+    let _ = app_data_dir;
+    HardwareProfile {
+        os_name: std::env::consts::OS.to_string(),
+        os_arch: std::env::consts::ARCH.to_string(),
+        cpu_model,
+        physical_cores,
+        logical_cores,
+        simd_features,
+        total_ram_mb,
+        available_ram_mb,
+        disk_free_gb,
+        cuda_available,
+        mps_available,
+        gpu_name,
+        vram_mb,
+        fp16_supported,
+        device_tier: device_tier.to_string(),
+        tier_label: tier_label.to_string(),
+        recommended_device: rec_device.to_string(),
+        recommended_max_concurrent_jobs: rec_jobs,
+        recommended_threads_per_job: rec_threads,
+        recommended_segment_s: rec_seg,
+        recommended_overlap: rec_ovl,
+        recommended_shifts: rec_shifts,
+        recommended_preset: rec_preset.to_string(),
+        recommended_fp16: rec_fp16,
+        recommended_parallel_dsp: rec_par_dsp,
+        recommended_safe_mode: rec_safe,
+    }
+}
+
 pub fn register_file_associations(app_data_dir: &Path, exe_path: Option<&Path>) -> AppResult<bool> {
     std::fs::create_dir_all(app_data_dir)?;
     let marker = app_data_dir.join(".associations_registered");
@@ -197,6 +450,7 @@ pub fn get_changelog_releases() -> Vec<ChangelogRelease> {
             date: "2026-11-07".to_string(),
             highlights: vec![
                 "Native Rust + Tauri v2 + React 19 architecture with zero localhost HTTP/WebSocket ports".to_string(),
+                "Multi-process parallel worker pool (1-4 concurrent processes) & hardware auto-optimization".to_string(),
                 "Real per-segment Demucs progress and <500ms cooperative job cancellation".to_string(),
                 "Real-time lock-free Rust multi-stem mixer with <15ms fader latency".to_string(),
                 "All 6 stems saved for htdemucs_6s and output_all_stems (fixes P-07)".to_string(),

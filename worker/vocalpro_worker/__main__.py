@@ -15,6 +15,7 @@ import torch
 from . import __version__
 from .analysis import analyze_audio_file
 from .engine import MODEL_POOL, JobCancelledError, WorkerEngineError, run_separation_job
+from .hardware import detect_hardware_profile
 from .midi import stem_to_midi_file
 from .protocol import StdioProtocol
 
@@ -184,6 +185,7 @@ class WorkerApp:
 
         if cmd_name == "get_capabilities":
             cuda_ok, gpu_name, vram_mb = _gpu_info()
+            hw = detect_hardware_profile().to_dict()
             devices = ["auto", "cpu"] + (["cuda"] if cuda_ok else [])
             self.proto.send(
                 {
@@ -196,6 +198,19 @@ class WorkerApp:
                     "cuda_available": cuda_ok,
                     "gpu_name": gpu_name,
                     "vram_mb": vram_mb,
+                    "hardware_profile": hw,
+                }
+            )
+            return True
+
+        if cmd_name == "get_hardware_profile":
+            hw = detect_hardware_profile().to_dict()
+            self.proto.send(
+                {
+                    "v": 1,
+                    "id": cmd_id,
+                    "event": "hardware_profile",
+                    "profile": hw,
                 }
             )
             return True

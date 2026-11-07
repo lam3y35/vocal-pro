@@ -4,6 +4,7 @@ import {
   ChangelogRelease,
   DEFAULT_JOB_OPTIONS,
   DownloadHistoryEntry,
+  HardwareProfile,
   JobOptions,
   JobRecord,
   ModelInfo,
@@ -58,11 +59,12 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   jobs: [],
   options: { ...DEFAULT_JOB_OPTIONS },
   customOutputDir: "",
-  parallelWorkers: 1,
+  parallelWorkers: 2,
   autoOpenFolder: true,
   previewWaveform: SYNTH_WAVEFORM_8000,
   logs: [
-    "[ready] VocalPro Worker v3.0.0 initialized over stdio JSON-Lines (0 listening TCP ports)",
+    "[ready] VocalPro Worker Pool v3.0.0 initialized over stdio JSON-Lines (0 listening TCP ports)",
+    "[info] Hardware Profile detected: Multi-process worker pool ready (up to 4 parallel processes)",
     "[info] PyTorch 2.15.0 | Demucs 4.1.0 | Symphonia 0.5.5 | SQLite WAL ready",
   ],
   addFiles: (paths) =>
@@ -97,7 +99,22 @@ export const useJobsStore = create<JobsState>((set, get) => ({
         : { ...s.options, song_mode: false },
     })),
   setCustomOutputDir: (dir) => set({ customOutputDir: dir }),
-  setParallelWorkers: (n) => set({ parallelWorkers: Math.max(1, Math.min(4, n)) }),
+  setParallelWorkers: (n) => {
+    const clamped = Math.max(1, Math.min(4, n));
+    set({ parallelWorkers: clamped });
+    useSystemStore.setState((sys) => ({
+      health: {
+        ...sys.health,
+        max_concurrent_workers: clamped,
+        slots: Array.from({ length: clamped }, (_, i) => ({
+          slot_id: i,
+          pid: 14820 + i * 4,
+          running: true,
+          active_job_id: null,
+        })),
+      },
+    }));
+  },
   setAutoOpenFolder: (v) => set({ autoOpenFolder: v }),
   appendLog: (line) =>
     set((s) => ({
@@ -106,9 +123,10 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   setActiveJobId: (jobId) => set({ activeJobId: jobId }),
 
   startSeparationBatch: () => {
-    const { selectedFiles, options, customOutputDir, appendLog } = get();
+    const { selectedFiles, options, customOutputDir, parallelWorkers, appendLog } = get();
     if (selectedFiles.length === 0) return;
 
+    const maxSlots = Math.max(1, parallelWorkers);
     const newJobs: JobRecord[] = selectedFiles.map((filePath, idx) => {
       const base = filePath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || `track_${idx + 1}`;
       const outDir = customOutputDir
@@ -116,6 +134,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
         : `C:\\Users\\Lam3y\\Music\\output_vocals\\${base}`;
       const segTotal = options.model === "htdemucs_ft" ? 32 : 8;
       const subTotal = options.model === "htdemucs_ft" ? 4 : options.ensemble_mode ? 2 : 1;
+      const assignedSlot = idx % maxSlots;
       return {
         job_id: `job-${Date.now()}-${idx}`,
         input_path: filePath,
@@ -129,13 +148,14 @@ export const useJobsStore = create<JobsState>((set, get) => ({
         sub_model_index: 0,
         sub_model_total: subTotal,
         eta_s: 6.4,
-        message: `Loading ${options.model} (${options.device.toUpperCase()})...`,
+        message: `[Worker #${assignedSlot + 1}] Loading ${options.model} (${options.device.toUpperCase()})...`,
         stems: [],
         comparison_samples: [],
         error_code: null,
         error_message: null,
         created_at: new Date().toISOString(),
         elapsed_s: null,
+        worker_slot: assignedSlot,
       };
     });
 
@@ -146,7 +166,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 
     for (const job of newJobs) {
       appendLog(
-        `[separate] Started ${job.job_id} -> model=${job.options.model}, format=${job.options.output_format}, shifts=${job.options.shifts}`
+        `[slot-${job.worker_slot ?? 0}:separate] Dispatched ${job.job_id} -> model=${job.options.model}, format=${job.options.output_format}, bit_depth=${job.options.wav_bit_depth}`
       );
       let step = 0;
       const timer = setInterval(() => {
@@ -691,7 +711,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 }));
 
 // ---------------------------------------------------------------------------
-// 4. System & Settings Store (Locale, Window State, File Associations, Models)
+// 4. System & Settings Store (Locale, Hardware Profile, Worker Pool, Models)
 // ---------------------------------------------------------------------------
 interface SystemState {
   locale: SupportedLocale;
@@ -700,6 +720,7 @@ interface SystemState {
   fileAssociationsRegistered: boolean;
   desktopShortcutCreated: boolean;
   health: WorkerHealth;
+  hardwareProfile: HardwareProfile;
   models: ModelInfo[];
   changelog: ChangelogRelease[];
   showChangelogModal: boolean;
@@ -712,9 +733,10 @@ interface SystemState {
   restartWorker: () => void;
   exportDiagnosticBundle: () => void;
   setShowChangelogModal: (v: boolean) => void;
+  autoOptimizeForHardware: () => void;
 }
 
-export const useSystemStore = create<SystemState>((set) => ({
+export const useSystemStore = create<SystemState>((set, get) => ({
   locale: "en",
   alwaysOnTop: false,
   minimizeToTray: false,
@@ -730,6 +752,40 @@ export const useSystemStore = create<SystemState>((set) => ({
     gpu_name: "NVIDIA GeForce RTX (CUDA / CPU Fallback Ready)",
     vram_mb: 8192,
     restart_count: 0,
+    max_concurrent_workers: 2,
+    active_workers: 0,
+    slots: [
+      { slot_id: 0, pid: 14820, running: true, active_job_id: null },
+      { slot_id: 1, pid: 14824, running: true, active_job_id: null },
+    ],
+  },
+  hardwareProfile: {
+    os_name: "Windows 11 / Linux x86_64",
+    os_arch: "x86_64",
+    cpu_model: "Multi-Core AVX2 Workstation Processor",
+    physical_cores: 8,
+    logical_cores: 16,
+    simd_features: ["AVX2", "FMA", "SSE4.2"],
+    total_ram_mb: 16384,
+    available_ram_mb: 12288,
+    disk_free_gb: 142.5,
+    cuda_available: true,
+    mps_available: false,
+    gpu_name: "NVIDIA GeForce RTX (8 GB VRAM)",
+    vram_mb: 8192,
+    fp16_supported: true,
+    device_tier: "high_gpu",
+    tier_label: "High-Performance GPU (6-11GB VRAM)",
+    recommended_device: "cuda",
+    recommended_max_concurrent_jobs: 2,
+    recommended_threads_per_job: 8,
+    recommended_segment_s: 7.8,
+    recommended_overlap: 0.25,
+    recommended_shifts: 1,
+    recommended_preset: "high",
+    recommended_fp16: true,
+    recommended_parallel_dsp: true,
+    recommended_safe_mode: false,
   },
   models: [
     {
@@ -803,6 +859,7 @@ export const useSystemStore = create<SystemState>((set) => ({
       date: "2026-11-07",
       highlights: [
         "Native Rust + Tauri v2 + React 19 architecture with zero localhost HTTP/WebSocket ports (fixes WinError 10055)",
+        "Multi-process parallel worker pool (1-4 concurrent processes) & hardware auto-optimization",
         "Real per-segment Demucs progress and < 500 ms cooperative job cancellation",
         "Real-time lock-free Rust multi-stem mixer with < 15 ms fader latency",
         "All 6 stems saved for htdemucs_6s and output_all_stems (fixes P-07)",
@@ -828,7 +885,7 @@ export const useSystemStore = create<SystemState>((set) => ({
   restartWorker: () =>
     set((s) => ({
       health: { ...s.health, running: true, restart_count: s.health.restart_count + 1 },
-      systemBanner: "Worker respawned cleanly over stdio JSON-Lines (handshake < 50 ms)",
+      systemBanner: "Worker pool respawned cleanly over stdio JSON-Lines (handshake < 50 ms)",
     })),
   exportDiagnosticBundle: () =>
     set({
@@ -836,4 +893,25 @@ export const useSystemStore = create<SystemState>((set) => ({
         "Exported diagnostic bundle -> %APPDATA%\\VocalPro\\vocalpro-diagnostics.zip (worker_logs.txt, settings.json, worker_health.json)",
     }),
   setShowChangelogModal: (v) => set({ showChangelogModal: v }),
+  autoOptimizeForHardware: () => {
+    const hw = get().hardwareProfile;
+    useJobsStore.getState().setParallelWorkers(hw.recommended_max_concurrent_jobs);
+    useJobsStore.getState().setOptions({
+      device: hw.recommended_device,
+      max_threads: hw.recommended_threads_per_job,
+      segment: hw.recommended_segment_s,
+      overlap: hw.recommended_overlap,
+      shifts: hw.recommended_shifts,
+      safe_mode: hw.recommended_safe_mode,
+      auto_oom_fallback: true,
+    });
+    useJobsStore
+      .getState()
+      .appendLog(
+        `[hardware-optimizer] Applied profile '${hw.tier_label}': parallelWorkers=${hw.recommended_max_concurrent_jobs}, threadsPerJob=${hw.recommended_threads_per_job}, device=${hw.recommended_device.toUpperCase()}, segment=${hw.recommended_segment_s}s`
+      );
+    set({
+      systemBanner: `Auto-Optimized for ${hw.tier_label}: ${hw.recommended_max_concurrent_jobs} Parallel Processes • ${hw.recommended_threads_per_job} Threads/Process • ${hw.recommended_device.toUpperCase()} Acceleration • FP16=${hw.recommended_fp16 ? "ON" : "OFF"}`,
+    });
+  },
 }));

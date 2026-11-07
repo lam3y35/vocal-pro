@@ -11,7 +11,8 @@ export type ModelName =
   | "mdx_extra_q";
 
 export type OutputMode = "vocals" | "background" | "karaoke" | "all_stems";
-export type OutputFormat = "wav" | "flac" | "mp3";
+export type OutputFormat = "wav" | "flac" | "mp3" | "ogg";
+export type WavBitDepth = "PCM_16" | "PCM_24" | "FLOAT";
 export type DeviceOption = "auto" | "cuda" | "cpu";
 export type VideoOutputMode = "both" | "video_only" | "audio_only";
 
@@ -71,6 +72,11 @@ export interface JobOptions {
   safe_mode: boolean;
   max_threads: number;
   cooldown_between_chunks_seconds: number;
+  wav_bit_depth: WavBitDepth;
+  enable_hf_restore: boolean;
+  hf_boost_db: number;
+  enable_loudness_normalize: boolean;
+  auto_oom_fallback: boolean;
 }
 
 export interface StemOutput {
@@ -101,6 +107,7 @@ export interface JobRecord {
   error_message: string | null;
   created_at: string;
   elapsed_s: number | null;
+  worker_slot?: number | null;
 }
 
 export interface OutputFolderEntry {
@@ -147,6 +154,13 @@ export interface ModelInfo {
   cached: boolean;
 }
 
+export interface WorkerSlotStatus {
+  slot_id: number;
+  pid: number | null;
+  running: boolean;
+  active_job_id: string | null;
+}
+
 export interface WorkerHealth {
   running: boolean;
   worker_version: string;
@@ -155,6 +169,38 @@ export interface WorkerHealth {
   gpu_name: string | null;
   vram_mb: number | null;
   restart_count: number;
+  max_concurrent_workers?: number;
+  active_workers?: number;
+  slots?: WorkerSlotStatus[];
+}
+
+export interface HardwareProfile {
+  os_name: string;
+  os_arch: string;
+  cpu_model: string;
+  physical_cores: number;
+  logical_cores: number;
+  simd_features: string[];
+  total_ram_mb: number;
+  available_ram_mb: number;
+  disk_free_gb: number;
+  cuda_available: boolean;
+  mps_available: boolean;
+  gpu_name: string | null;
+  vram_mb: number | null;
+  fp16_supported: boolean;
+  device_tier: string;
+  tier_label: string;
+  recommended_device: DeviceOption;
+  recommended_max_concurrent_jobs: number;
+  recommended_threads_per_job: number;
+  recommended_segment_s: number;
+  recommended_overlap: number;
+  recommended_shifts: number;
+  recommended_preset: string;
+  recommended_fp16: boolean;
+  recommended_parallel_dsp: boolean;
+  recommended_safe_mode: boolean;
 }
 
 export interface StemTrackInfo {
@@ -235,4 +281,9 @@ export const DEFAULT_JOB_OPTIONS: JobOptions = {
   safe_mode: false,
   max_threads: 0,
   cooldown_between_chunks_seconds: 0.0,
+  wav_bit_depth: "PCM_16",
+  enable_hf_restore: true,
+  hf_boost_db: 3.0,
+  enable_loudness_normalize: true,
+  auto_oom_fallback: true,
 };

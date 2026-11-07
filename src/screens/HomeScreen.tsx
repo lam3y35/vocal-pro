@@ -19,30 +19,42 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
   const health = useSystemStore((s) => s.health);
+  const hardwareProfile = useSystemStore((s) => s.hardwareProfile);
+  const autoOptimizeForHardware = useSystemStore((s) => s.autoOptimizeForHardware);
   const models = useSystemStore((s) => s.models);
   const outputs = useLibraryStore((s) => s.outputs);
   const selectOutput = useLibraryStore((s) => s.selectOutput);
   const selectedFiles = useJobsStore((s) => s.selectedFiles);
+  const parallelWorkers = useJobsStore((s) => s.parallelWorkers);
 
   return (
     <div className="space-y-6">
       {/* Studio Hero Banner */}
       <div className="rounded-2xl bg-gradient-to-r from-[#161822] via-[#1C1F30] to-[#161822] border border-[#25293A] p-6 flex flex-wrap items-center justify-between gap-6">
         <div className="space-y-2 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00D4AA]/15 border border-[#00D4AA]/30 text-[#00D4AA] text-xs font-semibold">
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>100% Local Offline Studio Engine • Zero Localhost Ports</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00D4AA]/15 border border-[#00D4AA]/30 text-[#00D4AA] text-xs font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>100% Local Offline Studio Engine • Zero Localhost Ports</span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6C63FF]/15 border border-[#6C63FF]/30 text-[#6C63FF] text-xs font-mono">
+              <Cpu className="w-3.5 h-3.5" />
+              <span>
+                {hardwareProfile.tier_label} • {parallelWorkers}x Parallel Processes
+              </span>
+            </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
             VocalPro v3 — Studio AI Vocal &amp; Multi-Stem Separator
           </h1>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Powered by Hybrid Transformer Demucs (4-stem &amp; 6-stem), in-memory float32 multi-band spectral
-            denoise, RBJ 8 kHz air restoration, and a lock-free Rust real-time stem mixer.
+            Powered by Hybrid Transformer Demucs (4-stem &amp; 6-stem), multi-process worker pool,
+            in-memory float32 6-band parallel spectral denoise, RBJ 8 kHz air restoration, and a
+            lock-free Rust real-time stem mixer.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => onNavigate("separate")}
@@ -50,6 +62,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
           >
             <Play className="w-4 h-4 fill-current" />
             <span>Open Separation Workstation ({selectedFiles.length} files queued)</span>
+          </button>
+          <button
+            type="button"
+            onClick={autoOptimizeForHardware}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#0F1016] border border-[#00D4AA]/50 hover:bg-[#00D4AA]/10 text-[#00D4AA] font-semibold text-xs transition"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Auto-Tune for Hardware</span>
           </button>
           <button
             type="button"
@@ -66,23 +86,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Worker IPC Transport</span>
+            <span>Multi-Process Worker Pool</span>
             <Zap className="w-4 h-4 text-[#00D4AA]" />
           </div>
-          <div className="text-lg font-bold text-white">Stdio JSON-Lines</div>
-          <div className="text-[11px] text-[#00D4AA]">0 open TCP ports • &lt;500 ms cancel</div>
+          <div className="text-lg font-bold text-white">
+            {parallelWorkers} Parallel Processes
+          </div>
+          <div className="text-[11px] text-[#00D4AA]">
+            Stdio JSON-Lines • 0 open TCP ports • &lt;500 ms cancel
+          </div>
         </div>
 
         <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Compute Device</span>
+            <span>Hardware Profile</span>
             <Cpu className="w-4 h-4 text-[#6C63FF]" />
           </div>
           <div className="text-lg font-bold text-white truncate">
-            {health.cuda_available ? "CUDA + CPU Fallback" : "CPU Multi-Thread"}
+            {health.cuda_available ? "CUDA + FP16 Ready" : `${hardwareProfile.logical_cores}T AVX2 CPU`}
           </div>
           <div className="text-[11px] text-slate-400 truncate">
-            {health.gpu_name || "PyTorch 2.15 Native"}
+            {hardwareProfile.cpu_model} • {(hardwareProfile.total_ram_mb / 1024).toFixed(0)} GB RAM
           </div>
         </div>
 
