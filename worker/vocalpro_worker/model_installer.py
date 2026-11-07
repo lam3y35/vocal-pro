@@ -121,9 +121,14 @@ def download_verified(
 
 
 def checkpoints_dir() -> Path:
-    import torch
+    if os.environ.get("VOCALPRO_MODELS_DIR"):
+        return Path(os.environ["VOCALPRO_MODELS_DIR"])
+    try:
+        import torch
 
-    return Path(torch.hub.get_dir()) / "checkpoints"
+        return Path(torch.hub.get_dir()) / "checkpoints"
+    except Exception:
+        return Path.home() / ".cache" / "torch" / "hub" / "checkpoints"
 
 
 def model_files(model_name: str) -> list[tuple[str, str]]:
