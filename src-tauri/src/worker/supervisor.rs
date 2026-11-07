@@ -226,6 +226,16 @@ impl WorkerSupervisor {
         let mut stdout_reader = BufReader::new(stdout);
         let mut first_line = String::new();
         stdout_reader.read_line(&mut first_line)?;
+        if first_line.trim().is_empty() {
+            use std::io::Read;
+            let mut err_msg = String::new();
+            let _ = BufReader::new(stderr).read_to_string(&mut err_msg);
+            return Err(AppError::System(format!(
+                "Worker slot {} exited prematurely during startup: {}",
+                slot_id,
+                err_msg.trim()
+            )));
+        }
         let initial_ev: WorkerEvent = serde_json::from_str(first_line.trim()).map_err(|e| {
             AppError::System(format!(
                 "Invalid startup handshake from worker slot {} ({:?}): {}",
