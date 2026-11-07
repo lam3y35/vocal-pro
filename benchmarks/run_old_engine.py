@@ -17,8 +17,8 @@ import scipy.ndimage
 import soundfile as sf
 import torch
 
-# Import legacy code directly from /home/antigravity/lam3y35/vocal-pro without modifying it
-LEGACY_ROOT = Path("/home/antigravity/lam3y35/vocal-pro")
+# Import legacy code directly from sibling ../vocal-pro without modifying it
+LEGACY_ROOT = Path(__file__).resolve().parents[1].parent / "vocal-pro"
 sys.path.insert(0, str(LEGACY_ROOT / "code"))
 
 import audio_postprocess as legacy_dsp  # noqa: E402

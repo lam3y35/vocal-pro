@@ -27,7 +27,7 @@ import torch
 
 WORKER_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = WORKER_ROOT.parent
-LEGACY_ROOT = Path("/home/antigravity/lam3y35/vocal-pro")
+LEGACY_ROOT = REPO_ROOT.parent / "vocal-pro"
 REF_DIR = REPO_ROOT / "benchmarks" / "reference-set"
 
 if str(WORKER_ROOT) not in sys.path:
