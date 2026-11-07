@@ -92,6 +92,71 @@ pub struct HardwareSpecInput {
     pub profile_mode: String,
 }
 
+/// Cross-platform RAM / physical-core probe (uses `sysinfo`; the previous /proc-only code silently fell back to
+/// 8 GB / 6 GB and `logical/2` cores on Windows and macOS).
+#[derive(Debug, Clone, Copy)]
+pub struct RamCoreProbe {
+    pub total_ram_mb: u64,
+    pub available_ram_mb: u64,
+    pub physical_cores: u32,
+    pub logical_cores: u32,
+}
+
+pub fn probe_ram_and_cores() -> RamCoreProbe {
+    let mut total_ram = 8192;
+    let mut avail_ram = 6144;
+    if let Ok(mut sys) = sysinfo::System::new() {
+        sys.refresh_memory();
+        let t = sys.total_memory() / (1024 * 1024);
+        let a = sys.available_memory() / (1024 * 1024);
+        if t > 0 {
+            total_ram = t;
+        }
+        if a > 0 {
+            avail_ram = a;
+        }
+    }
+    let logical_cores = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(4);
+    let physical_cores = sysinfo::System::physical_core_count()
+        .ok()
+        .map(|c| c as u32)
+        .filter(|c| *c >= 1)
+        .unwrap_or_else(|| (logical_cores / 2).max(1))
+        .min(logical_cores);
+    RamCoreProbe {
+        total_ram_mb: total_ram,
+        available_ram_mb: avail_ram,
+        physical_cores,
+        logical_cores,
+    }
+}
+
+/// Hard upper bound on concurrent heavy separation workers.
+///
+/// * RAM: each worker holds its own model copy (~1.2 GB measured in the scaling run); 2 GB is reserved for OS + UI.
+/// * CPU-only: at least 4 physical cores per worker. Measured on a 2-core/4-thread-less VM with the real htdemucs
+///   (`benchmarks/real_pool_scaling.json`) 2 workers did not beat 1 worker, so CPU concurrency must be earned by
+///   core count (and, above 1, confirmed by calibration).
+/// * CUDA: bounded by VRAM (4 GB per worker) and the pool maximum.
+pub fn worker_hard_cap(
+    physical_cores: u32,
+    available_ram_mb: u64,
+    cuda: bool,
+    vram_mb: Option<u64>,
+    pool_max: u32,
+) -> u32 {
+    let ram_cap = (available_ram_mb.saturating_sub(2048) / 1200).max(1) as u32;
+    let cap = if cuda {
+        let vram_cap = (vram_mb.unwrap_or(4000) / 4000).max(1) as u32;
+        ram_cap.min(vram_cap)
+    } else {
+        ram_cap.min((physical_cores / 4).max(1))
+    };
+    cap.clamp(1, pool_max.max(1))
+}
+
 pub fn classify_hardware_spec(spec: HardwareSpecInput) -> HardwareProfile {
     let mut warnings = Vec::new();
     let mut non_cuda_gpu_note = None;
@@ -169,11 +234,8 @@ pub fn classify_hardware_spec(spec: HardwareSpecInput) -> HardwareProfile {
         )
     } else if spec.logical_cores >= 8 && spec.total_ram_mb >= 14000 && spec.available_ram_mb >= 4500
     {
-        let jobs = if spec.logical_cores >= 16 && ram_worker_cap >= 2 {
-            2
-        } else {
-            1
-        };
+        // CPU default is ONE worker; >1 is only granted by hardware calibration (measured gain).
+        let jobs = 1;
         (
             "workstation_cpu",
             format!(
@@ -448,10 +510,9 @@ pub fn detect_system_hardware_with_mode(
     vram_mb: Option<u64>,
     profile_mode: &str,
 ) -> HardwareProfile {
-    let logical_cores = std::thread::available_parallelism()
-        .map(|n| n.get() as u32)
-        .unwrap_or(4);
-    let mut physical_cores = (logical_cores / 2).max(1);
+    let probe = probe_ram_and_cores();
+    let physical_cores = probe.physical_cores;
+    let logical_cores = probe.logical_cores;
     let mut cpu_model = format!("{} Processor", std::env::consts::ARCH.to_uppercase());
     let mut simd_features = Vec::new();
 
@@ -460,12 +521,6 @@ pub fn detect_system_hardware_with_mode(
             if line.starts_with("model name") {
                 if let Some((_, val)) = line.split_once(':') {
                     cpu_model = val.trim().to_string();
-                }
-            } else if line.starts_with("cpu cores") {
-                if let Some((_, val)) = line.split_once(':') {
-                    if let Ok(c) = val.trim().parse::<u32>() {
-                        physical_cores = c.max(1);
-                    }
                 }
             } else if line.starts_with("flags") && simd_features.is_empty() {
                 if let Some((_, val)) = line.split_once(':') {
@@ -497,29 +552,8 @@ pub fn detect_system_hardware_with_mode(
         }
     }
 
-    let mut total_ram_mb: u64 = 8192;
-    let mut available_ram_mb: u64 = 6144;
-    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-        for line in meminfo.lines() {
-            if line.starts_with("MemTotal:") {
-                if let Some(kb) = line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
-                    total_ram_mb = kb / 1024;
-                }
-            } else if line.starts_with("MemAvailable:") {
-                if let Some(kb) = line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
-                    available_ram_mb = kb / 1024;
-                }
-            }
-        }
-    }
+    let total_ram_mb = probe.total_ram_mb;
+    let available_ram_mb = probe.available_ram_mb;
 
     let disk_free_gb = detect_disk_free_gb(app_data_dir);
     let temp_drive_speed_mbps = measure_temp_write_speed_mbps(app_data_dir);

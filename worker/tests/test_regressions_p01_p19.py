@@ -586,7 +586,8 @@ def test_simulated_hardware_all_6_tiers_and_edge_cases() -> None:
     # 4. workstation_cpu (32 threads, 64 GB RAM)
     t4 = hardware.classify_and_build_profile(**{**base, "physical_cores": 16, "logical_cores": 32, "total_ram_mb": 65536, "available_ram_mb": 50000})
     assert t4.device_tier == "workstation_cpu"
-    assert t4.recommended_max_concurrent_jobs == 2
+    # Item 4 user requirement: on CPU, default to 1 worker unless calibration shows a gain
+    assert t4.recommended_max_concurrent_jobs == 1
 
     # 5. standard_cpu with AMD GPU (no CUDA)
     t5 = hardware.classify_and_build_profile(**{**base, "physical_cores": 4, "logical_cores": 8, "total_ram_mb": 8192, "available_ram_mb": 5000, "gpu_vendor": "amd", "gpu_name": "AMD Radeon RX 7600"})

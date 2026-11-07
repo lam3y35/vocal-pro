@@ -96,3 +96,30 @@ npm run tauri build
   - GPU model name and VRAM MB are displayed accurately, and tier is classified as `ultra_gpu` (`>=12 GB`), `high_gpu` (`6–11 GB`), or `entry_gpu` (`4–5 GB`).
   - Default `Auto`, `Balanced`, and `Max Quality` profiles keep `FP16 = Disabled (Bit-Exact FP32)` unless explicitly opted in.
 - **Pass / Fail:** `[ ] PASS  [ ] FAIL` — Notes: ______________________
+
+---
+
+### Test W-06: Windows Real-Window Cold Start Time
+- **Why `UNVERIFIED` in VM:** The Linux VM measured `742 ms` DOMContentLoaded + networkidle in headless Chromium on Linux over `vite preview` with mocked IPC. Real WebView2 initialization + native window creation + SQLite load on physical Windows 10/11 requires a real Windows desktop.
+- **Steps:**
+  1. Close VocalPro completely (ensure no background `vocalpro.exe` in Task Manager).
+  2. Launch VocalPro from Desktop shortcut or Start Menu.
+  3. Time from launch until the main interactive UI appears.
+- **Expected Result:**
+  - Window appears and becomes interactive in `< 1.5 s` on SSD.
+- **Pass / Fail:** `[ ] PASS  [ ] FAIL` — Time measured: _______ s
+
+---
+
+### Test W-07: Windows NSIS Installer Installation and Clean Uninstallation
+- **Why `UNVERIFIED` in VM:** NSIS installer (`.exe`) execution, registry writes, and uninstallation require an interactive Windows desktop.
+- **Steps:**
+  1. Download the Windows NSIS installer artifact (`vocalpro-windows-x86_64`) from the GitHub Actions CI run.
+  2. Run the installer (per-user install to `%LOCALAPPDATA%\Programs\VocalPro`).
+  3. Verify Start Menu shortcut and Desktop shortcut are created.
+  4. Run Windows **Settings -> Installed apps -> VocalPro -> Uninstall**.
+  5. Check `%LOCALAPPDATA%\Programs\VocalPro` and Desktop shortcut.
+- **Expected Result:**
+  - Installer completes without admin prompt (currentUser mode).
+  - Uninstaller removes application binaries, shortcuts, and registry associations cleanly.
+- **Pass / Fail:** `[ ] PASS  [ ] FAIL` — Notes: ______________________

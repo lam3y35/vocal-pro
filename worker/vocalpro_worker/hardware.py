@@ -428,9 +428,9 @@ def classify_and_build_profile(
         device_tier = "workstation_cpu"
         tier_label = f"Multi-Core Workstation CPU ({logical_cores} Threads)"
         base_device = "cpu"
-        # Empirical finding (Addendum #3): 1 heavy worker with all physical cores is faster per job and uses half the RAM;
-        # only recommend 2 concurrent heavy CPU workers if >=16 logical cores and >=16 GB RAM available.
-        base_jobs = 2 if (logical_cores >= 16 and ram_worker_cap >= 2) else 1
+        # CPU default is ONE heavy worker (measured: more workers than cores/4 do not help on CPU, see
+        # benchmarks/real_pool_scaling.json). run_hardware_calibration() raises this only after measuring a real gain.
+        base_jobs = 1
     elif logical_cores >= 4 and total_ram_mb >= 6000 and available_ram_mb >= 2500:
         device_tier = "standard_cpu"
         tier_label = f"Standard Desktop/Laptop CPU ({logical_cores} Threads)"
@@ -640,6 +640,46 @@ def get_process_rss_mb() -> int:
         return 256
 
 
+def _probe_worker(threads: int, seconds: float, out_q: Any) -> None:
+    """Child process for measure_two_worker_gain: load real htdemucs, time one short CPU inference."""
+    torch.set_num_threads(max(1, threads))
+    from demucs.apply import apply_model
+    from demucs.pretrained import get_model
+
+    model = get_model("htdemucs").cpu().eval()
+    x = torch.randn(1, 2, int(seconds * 44100)) * 0.1
+    t0 = time.perf_counter()
+    with torch.inference_mode():
+        apply_model(model, x, shifts=0, split=True, overlap=0.25, progress=False, device="cpu")
+    out_q.put(time.perf_counter() - t0)
+
+
+def measure_two_worker_gain(physical_cores: int, seconds: float = 4.0) -> Optional[float]:
+    """Throughput gain of 2 concurrent CPU workers (cores/2 threads each) over 2 sequential 1-worker jobs.
+
+    Returns None if the probe could not run. >1.0 means concurrency helps. Real htdemucs, ~20-40 s on CPU.
+    """
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    try:
+        q1 = ctx.Queue()
+        p = ctx.Process(target=_probe_worker, args=(physical_cores, seconds, q1))
+        p.start()
+        t_single = q1.get(timeout=120)
+        p.join()
+        q2 = ctx.Queue()
+        procs = [ctx.Process(target=_probe_worker, args=(max(1, physical_cores // 2), seconds, q2)) for _ in range(2)]
+        for pr in procs:
+            pr.start()
+        t_a, t_b = q2.get(timeout=240), q2.get(timeout=240)
+        for pr in procs:
+            pr.join()
+        return round((2.0 * t_single) / max(t_a, t_b), 3)
+    except Exception:
+        return None
+
+
 def run_hardware_calibration(
     duration_s: float = 2.0,
     target_dir: Optional[Path] = None,
@@ -695,7 +735,13 @@ def run_hardware_calibration(
     avail_after_one = max(0, prof.available_ram_mb - max(rss_mb, 600))
     if device.type == "cpu":
         # On CPU, only allow >1 concurrent heavy worker if single-worker RTF >= 1.5x and ample RAM remains
-        cal_jobs = 2 if (rtf >= 1.5 and avail_after_one >= 2500 and prof.logical_cores >= 12) else 1
+        # Concurrency must be EARNED: needs >=8 physical cores, headroom for a 2nd model copy, and a MEASURED
+        # >=15 % throughput gain for 2 concurrent workers (half the threads each) vs the same 2 jobs run sequentially.
+        cal_jobs = 1
+        if prof.physical_cores >= 8 and avail_after_one >= 2500 and not os.environ.get("VOCALPRO_TEST_FAST_MODEL"):
+            gain = measure_two_worker_gain(prof.physical_cores, min(duration_s, 6.0))
+            if gain is not None and gain >= 1.15:
+                cal_jobs = 2
     else:
         cal_jobs = prof.recommended_max_concurrent_jobs
 

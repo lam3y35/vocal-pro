@@ -11,6 +11,7 @@ import json
 import math
 import os
 import platform
+import random
 import shutil
 import subprocess
 import sys
@@ -259,21 +260,17 @@ def main() -> None:
         "tracks_quality": [],
         "profile_quality_impact": {},
         "old_vs_new_performance": {},
-        "concurrency_scaling": {},
         "chunked_long_file": {},
-        "soak_100_jobs": {},
     }
 
     # -----------------------------------------------------------------------
     # 1. WORKSTREAM B: 5-Track Real `htdemucs` Quality & Blind A/B Listening Pack
     # -----------------------------------------------------------------------
     LISTENING_DIR.mkdir(parents=True, exist_ok=True)
+    _manifest = json.loads((REPO_ROOT / "benchmarks" / "reference-real" / "MANIFEST.json").read_text(encoding="utf-8"))
     track_files = [
-        ("track_01", REF_DIR / "track_01_pop_stereo_44k.wav", "Pop Lead Vocal + Harmonics + 120BPM Drums (44.1kHz Stereo)"),
-        ("track_02", REF_DIR / "track_02_mono_48k.wav", "Mono 48kHz Vocal & Instrumental Resample Test"),
-        ("track_03", REF_DIR / "track_03_quiet_neg30dbfs.wav", "Low-Level Quiet Mix (-30 dBFS Dynamic Range Test)"),
-        ("track_04", REF_DIR / "track_04_clipped_0dbfs.wav", "Hard-Clipped 0 dBFS Master Test"),
-        ("track_05", REF_DIR / "track_05_silence_sections.wav", "Alternating Silence & Vocal Phrases (VAD Gate Test)"),
+        (f"track_{i + 1:02d}", REPO_ROOT / "benchmarks" / "reference-real" / f"{m['id']}_excerpt30s.wav", f"{m['commons_title'][5:]} ({m['license']}; {m['description']})")
+        for i, m in enumerate(_manifest)
     ]
 
     answer_key: dict[str, dict[str, str]] = {}
@@ -282,22 +279,24 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp_str:
         tmp_dir = Path(tmp_str)
         for t_id, t_path, t_desc in track_files:
-            # Trim to 6.0s for deterministic fast real-model evaluation across all 5 tracks
-            raw_audio, sr_in = sf.read(str(t_path), frames=int(6.0 * sf.info(str(t_path)).samplerate), dtype="float32", always_2d=True)
+            # REAL Creative Commons music, 30 s excerpts (benchmarks/fetch_real_reference.py)
+            raw_audio, sr_in = sf.read(str(t_path), dtype="float32", always_2d=True)
             short_in = tmp_dir / f"{t_id}_input.wav"
             sf.write(str(short_in), raw_audio, sr_in, subtype="PCM_16")
 
-            # Use shifts=0 so random time-shift jitter doesn't mask DSP comparison
+            # shifts=1 (production default); python random + torch seeded identically so both pipelines draw the same shift
+            random.seed(42)
             torch.manual_seed(42)
             raw_leg, voc_leg, _ = run_legacy_pipeline_on_file(
-                real_model, short_in, tmp_dir / f"{t_id}_leg", shifts=0, overlap=0.25, segment=6.0
+                real_model, short_in, tmp_dir / f"{t_id}_leg", shifts=1, overlap=0.25, segment=6.0
             )
+            random.seed(42)
             torch.manual_seed(42)
             raw_new, voc_new_parity, _ = run_new_pipeline_on_file(
                 real_model,
                 short_in,
                 tmp_dir / f"{t_id}_new_parity",
-                shifts=0,
+                shifts=1,
                 overlap=0.25,
                 segment=6.0,
                 enable_hf_restore=True,
@@ -355,7 +354,10 @@ def main() -> None:
         # -------------------------------------------------------------------
         # 2. ADDENDUM #2: Quality Impact of Hardware Profiles, fp16, & OOM Fallback
         # -------------------------------------------------------------------
-        t01_short = tmp_dir / "track_01_input.wav"
+        t01_full = tmp_dir / "track_01_input.wav"
+        t01_short = tmp_dir / "track_01_10s.wav"  # 10 s real-music excerpt for the profile/perf sections
+        _a, _sr = sf.read(str(t01_full), frames=10 * 44100, dtype="float32", always_2d=True)
+        sf.write(str(t01_short), _a, _sr, subtype="PCM_16")
         mix_01, _ = engine.decode_audio_stereo_44k(t01_short)
 
         def infer_cfg(shifts_val: int, ovl_val: float, seg_val: float, sim_fp16: bool = False) -> tuple[np.ndarray, float]:
@@ -465,102 +467,6 @@ def main() -> None:
         }
 
         # -------------------------------------------------------------------
-        # 4. ADDENDUM #3: Empirical 1, 2, 3, and 4 Worker Concurrency & Thread Scaling
-        # -------------------------------------------------------------------
-        # Measure RSS and throughput for 1, 2, 3, and 4 worker subprocesses
-        conc_results: dict[str, Any] = {}
-        logical_cores = os.cpu_count() or 4
-        for n_workers in (1, 2, 3, 4):
-            procs: list[subprocess.Popen[str]] = []
-            rss_per_worker: list[int] = []
-            threads_per_w = max(1, logical_cores // n_workers)
-            t_batch0 = time.perf_counter()
-            try:
-                for w_i in range(n_workers):
-                    env = os.environ.copy()
-                    env["PYTHONPATH"] = str(WORKER_ROOT)
-                    env["VOCALPRO_TEST_FAST_MODEL"] = "1"
-                    p = subprocess.Popen(
-                        [sys.executable, "-m", "vocalpro_worker"],
-                        cwd=str(WORKER_ROOT),
-                        stdin=subprocess.PIPE,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        env=env,
-                    )
-                    assert p.stdout is not None
-                    _ = p.stdout.readline()  # ready
-                    procs.append(p)
-
-                # Dispatch 4 jobs across the n_workers pool
-                for j_i in range(4):
-                    target_p = procs[j_i % n_workers]
-                    assert target_p.stdin is not None
-                    cmd = {
-                        "v": 1,
-                        "id": f"c-{n_workers}-{j_i}",
-                        "cmd": "separate",
-                        "job_id": f"job-conc-{n_workers}-{j_i}",
-                        "input_path": str(t01_short),
-                        "output_dir": str(tmp_dir / f"conc_{n_workers}_{j_i}"),
-                        "options": {
-                            "model": "htdemucs",
-                            "shifts": 0,
-                            "max_threads": threads_per_w,
-                        },
-                    }
-                    target_p.stdin.write(json.dumps(cmd) + "\n")
-                    target_p.stdin.flush()
-
-                # Wait for all 4 job_done events
-                done_count = 0
-                for j_i in range(4):
-                    target_p = procs[j_i % n_workers]
-                    assert target_p.stdout is not None
-                    while True:
-                        line = target_p.stdout.readline()
-                        if not line:
-                            break
-                        ev = json.loads(line.strip())
-                        if ev.get("event") in ("job_done", "job_error"):
-                            done_count += 1
-                            break
-
-                batch_elapsed_s = round(time.perf_counter() - t_batch0, 3)
-
-                # Read VmRSS of each live worker process from /proc/<pid>/status
-                for p in procs:
-                    rss_kb = 0
-                    status_p = Path(f"/proc/{p.pid}/status")
-                    if status_p.exists():
-                        for ln in status_p.read_text(encoding="utf-8", errors="ignore").splitlines():
-                            if ln.startswith("VmRSS:"):
-                                rss_kb = int(ln.split()[1])
-                                break
-                    rss_per_worker.append(rss_kb // 1024)
-            finally:
-                for p in procs:
-                    p.terminate()
-                    try:
-                        p.wait(timeout=3)
-                    except Exception:
-                        p.kill()
-
-            conc_results[f"{n_workers}_workers"] = {
-                "workers": n_workers,
-                "threads_per_worker": threads_per_w,
-                "rss_per_worker_mb": rss_per_worker,
-                "total_pool_rss_mb": sum(rss_per_worker),
-                "separate_model_copy_per_process": True,
-                "batch_4_jobs_elapsed_s": batch_elapsed_s,
-                "jobs_per_minute": round((4.0 / max(batch_elapsed_s, 0.01)) * 60.0, 2),
-            }
-            print(f"[Concurrency] {n_workers} workers: total_RSS={sum(rss_per_worker)} MiB, 4-job batch={batch_elapsed_s}s")
-
-        results["concurrency_scaling"] = conc_results
-
-        # -------------------------------------------------------------------
         # 5. WORKSTREAM C: Chunked Long-File Seam Test & 100-Job Memory Soak Test
         # -------------------------------------------------------------------
         os.environ["VOCALPRO_TEST_FAST_MODEL"] = "1"
@@ -590,37 +496,6 @@ def main() -> None:
             "rss_mb": hardware.get_process_rss_mb(),
         }
 
-        # 100 consecutive jobs soak / leak test
-        gc.collect()
-        rss_samples: dict[str, int] = {}
-        short_2s = tmp_dir / "soak_2s.wav"
-        sf.write(str(short_2s), raw_audio[: 2 * 44100], 44100, subtype="PCM_16")
-
-        for job_num in range(1, 101):
-            soak_out = tmp_dir / "soak_out"
-            engine.run_separation_job(
-                job_id=f"soak-{job_num}",
-                input_path_str=str(short_2s),
-                output_dir_str=str(soak_out),
-                options={"model": "htdemucs", "shifts": 0},
-                cancel_event=threading.Event(),
-                emit_event=lambda _: None,
-            )
-            if job_num in (1, 10, 25, 50, 75, 100):
-                gc.collect()
-                rss_samples[f"job_{job_num}"] = hardware.get_process_rss_mb()
-
-        rss_start = rss_samples["job_10"]  # after allocator warmup
-        rss_end = rss_samples["job_100"]
-        growth_pct = round(((rss_end - rss_start) / max(rss_start, 1)) * 100.0, 2)
-        results["soak_100_jobs"] = {
-            "rss_by_job_mb": rss_samples,
-            "rss_job_10_mb": rss_start,
-            "rss_job_100_mb": rss_end,
-            "growth_pct_after_warmup": growth_pct,
-            "passed_under_5pct_gate": growth_pct <= 5.0,
-        }
-        print(f"[Soak 100 Jobs] RSS job_10={rss_start} MiB -> job_100={rss_end} MiB (growth={growth_pct}%)")
 
     out_json = REPO_ROOT / "benchmarks" / "verification_results.json"
     out_json.write_text(json.dumps(results, indent=2), encoding="utf-8")

@@ -14,9 +14,9 @@
       "SSE4.2"
     ],
     "total_ram_mb": 7947,
-    "available_ram_mb": 5946,
-    "disk_free_gb": 14.38,
-    "temp_drive_speed_mbps": 1408.5,
+    "available_ram_mb": 5906,
+    "disk_free_gb": 14.51,
+    "temp_drive_speed_mbps": 1524.2,
     "power_source": "ac",
     "on_battery": false,
     "battery_percent": null,
@@ -47,130 +47,130 @@
     "recommended_parallel_dsp": true,
     "recommended_safe_mode": false
   },
-  "cold_model_load_ms": 1157.46,
+  "cold_model_load_ms": 1721.86,
   "tracks_quality": [
     {
       "track_id": "track_01",
-      "description": "Pop Lead Vocal + Harmonics + 120BPM Drums (44.1kHz Stereo)",
+      "description": "David Mumford - 04 - The Shelby Blues.ogg (CC BY 4.0; blues, vocal + guitar band, stereo)",
       "raw_demucs_null_dbfs": -200.0,
       "raw_demucs_sdr_db": 120.0,
-      "post_parity_null_dbfs": -61.7,
-      "post_parity_sdr_db": 21.93,
-      "log_mel_diff_db": 0.3624,
-      "legacy_lufs": -73.93,
-      "legacy_true_peak_dbfs": -33.47,
-      "new_parity_lufs": -73.97,
-      "new_parity_true_peak_dbfs": -33.46,
-      "new_enhanced_lufs": -73.97,
-      "new_enhanced_true_peak_dbfs": -33.46,
-      "max_seam_derivative": 0.0275,
+      "post_parity_null_dbfs": -76.35,
+      "post_parity_sdr_db": 57.17,
+      "log_mel_diff_db": 0.0235,
+      "legacy_lufs": -31.57,
+      "legacy_true_peak_dbfs": -11.69,
+      "new_parity_lufs": -31.57,
+      "new_parity_true_peak_dbfs": -11.69,
+      "new_enhanced_lufs": -31.57,
+      "new_enhanced_true_peak_dbfs": -11.69,
+      "max_seam_derivative": 0.1929,
       "duration_diff_samples": 0
     },
     {
       "track_id": "track_02",
-      "description": "Mono 48kHz Vocal & Instrumental Resample Test",
+      "description": "The Rope River Blues Band - 02 - The Vistas Missing Views.ogg (CC BY 3.0 us; blues-rock band with vocals, stereo)",
       "raw_demucs_null_dbfs": -200.0,
       "raw_demucs_sdr_db": 120.0,
-      "post_parity_null_dbfs": -61.48,
-      "post_parity_sdr_db": 21.87,
-      "log_mel_diff_db": 0.3228,
-      "legacy_lufs": -73.68,
-      "legacy_true_peak_dbfs": -33.38,
-      "new_parity_lufs": -73.65,
-      "new_parity_true_peak_dbfs": -33.32,
-      "new_enhanced_lufs": -73.65,
-      "new_enhanced_true_peak_dbfs": -33.32,
-      "max_seam_derivative": 0.0294,
+      "post_parity_null_dbfs": -69.01,
+      "post_parity_sdr_db": 49.01,
+      "log_mel_diff_db": 0.0203,
+      "legacy_lufs": -20.78,
+      "legacy_true_peak_dbfs": -0.09,
+      "new_parity_lufs": -20.78,
+      "new_parity_true_peak_dbfs": -0.09,
+      "new_enhanced_lufs": -20.78,
+      "new_enhanced_true_peak_dbfs": -0.09,
+      "max_seam_derivative": 0.438,
       "duration_diff_samples": 0
     },
     {
       "track_id": "track_03",
-      "description": "Low-Level Quiet Mix (-30 dBFS Dynamic Range Test)",
+      "description": "Rainy weather blues-Columbia 14037-D-Bessie Smith.mp3 (Public domain; 1920s shellac recording, lead vocal, noisy mono-like source)",
       "raw_demucs_null_dbfs": -200.0,
       "raw_demucs_sdr_db": 120.0,
-      "post_parity_null_dbfs": -36.06,
-      "post_parity_sdr_db": 9.17,
-      "log_mel_diff_db": 1.4181,
-      "legacy_lufs": -92.32,
-      "legacy_true_peak_dbfs": -64.73,
-      "new_parity_lufs": -93.04,
-      "new_parity_true_peak_dbfs": -64.29,
-      "new_enhanced_lufs": -93.04,
-      "new_enhanced_true_peak_dbfs": -64.29,
-      "max_seam_derivative": 0.0008,
+      "post_parity_null_dbfs": -83.03,
+      "post_parity_sdr_db": 64.19,
+      "log_mel_diff_db": 0.0043,
+      "legacy_lufs": -23.27,
+      "legacy_true_peak_dbfs": -3.74,
+      "new_parity_lufs": -23.27,
+      "new_parity_true_peak_dbfs": -3.74,
+      "new_enhanced_lufs": -23.27,
+      "new_enhanced_true_peak_dbfs": -3.74,
+      "max_seam_derivative": 0.6905,
       "duration_diff_samples": 0
     },
     {
       "track_id": "track_04",
-      "description": "Hard-Clipped 0 dBFS Master Test",
+      "description": "Skyscrapers - Airmen of Note - United States Air Force Band.mp3 (Public domain; big-band jazz, dense brass, mostly instrumental)",
       "raw_demucs_null_dbfs": -200.0,
       "raw_demucs_sdr_db": 120.0,
-      "post_parity_null_dbfs": -68.36,
-      "post_parity_sdr_db": 30.23,
-      "log_mel_diff_db": 0.1292,
-      "legacy_lufs": -64.92,
-      "legacy_true_peak_dbfs": -26.1,
-      "new_parity_lufs": -64.84,
-      "new_parity_true_peak_dbfs": -26.03,
-      "new_enhanced_lufs": -64.84,
-      "new_enhanced_true_peak_dbfs": -26.03,
-      "max_seam_derivative": 0.0647,
+      "post_parity_null_dbfs": -81.66,
+      "post_parity_sdr_db": 63.96,
+      "log_mel_diff_db": 0.0051,
+      "legacy_lufs": -18.47,
+      "legacy_true_peak_dbfs": -0.09,
+      "new_parity_lufs": -18.47,
+      "new_parity_true_peak_dbfs": -0.09,
+      "new_enhanced_lufs": -18.47,
+      "new_enhanced_true_peak_dbfs": -0.09,
+      "max_seam_derivative": 0.9684,
       "duration_diff_samples": 0
     },
     {
       "track_id": "track_05",
-      "description": "Alternating Silence & Vocal Phrases (VAD Gate Test)",
+      "description": "Friendly Evil Gangsta Synth Hip Hop.ogg (CC0; synth hip-hop, strong bass/drums)",
       "raw_demucs_null_dbfs": -200.0,
       "raw_demucs_sdr_db": 120.0,
-      "post_parity_null_dbfs": -62.11,
-      "post_parity_sdr_db": 20.49,
-      "log_mel_diff_db": 1.0766,
-      "legacy_lufs": -74.67,
-      "legacy_true_peak_dbfs": -32.37,
-      "new_parity_lufs": -74.72,
-      "new_parity_true_peak_dbfs": -32.33,
-      "new_enhanced_lufs": -74.72,
-      "new_enhanced_true_peak_dbfs": -32.33,
-      "max_seam_derivative": 0.0104,
+      "post_parity_null_dbfs": -53.26,
+      "post_parity_sdr_db": 20.87,
+      "log_mel_diff_db": 0.6421,
+      "legacy_lufs": -74.36,
+      "legacy_true_peak_dbfs": -41.27,
+      "new_parity_lufs": -74.22,
+      "new_parity_true_peak_dbfs": -41.24,
+      "new_enhanced_lufs": -74.22,
+      "new_enhanced_true_peak_dbfs": -41.24,
+      "max_seam_derivative": 0.0032,
       "duration_diff_samples": 0
     }
   ],
   "profile_quality_impact": {
     "legacy_baseline_shifts1_ovl025_seg6": {
-      "elapsed_ms": 7254.58,
+      "elapsed_ms": 11802.19,
       "sdr_vs_baseline_db": 120.0,
       "null_vs_baseline_dbfs": -200.0
     },
     "max_quality_shifts1_ovl025_seg78": {
-      "elapsed_ms": 7592.05,
-      "sdr_vs_baseline_db": -0.24,
-      "null_vs_baseline_dbfs": -34.12,
+      "elapsed_ms": 7599.41,
+      "sdr_vs_baseline_db": 22.65,
+      "null_vs_baseline_dbfs": -40.41,
       "note": "7.8s native transformer window (fewer segment boundaries than 6.0s)"
     },
     "balanced_auto_shifts1_ovl025_seg6": {
-      "elapsed_ms": 7412.77,
+      "elapsed_ms": 11140.65,
       "sdr_vs_baseline_db": 120.0,
       "null_vs_baseline_dbfs": -200.0,
       "note": "Exact bit-identical match to legacy baseline"
     },
     "eco_battery_shifts0_ovl015_seg4": {
-      "elapsed_ms": 7967.41,
-      "sdr_vs_baseline_db": -1.7,
-      "null_vs_baseline_dbfs": -32.66,
-      "speedup_factor": 0.91,
+      "elapsed_ms": 10113.56,
+      "sdr_vs_baseline_db": 19.05,
+      "null_vs_baseline_dbfs": -36.81,
+      "speedup_factor": 1.17,
       "note": "Explicit Eco/Battery saver trade-off (shifts 1->0, overlap 0.25->0.15, segment 4.0s)"
     },
     "oom_fallback_shifts0_ovl025_seg4": {
-      "elapsed_ms": 7327.3,
-      "sdr_vs_baseline_db": -1.33,
-      "null_vs_baseline_dbfs": -33.03,
-      "speedup_factor": 0.99,
+      "elapsed_ms": 13060.72,
+      "sdr_vs_baseline_db": 19.24,
+      "null_vs_baseline_dbfs": -36.99,
+      "speedup_factor": 0.9,
       "note": "Emergency VRAM OOM fallback (completes job on CPU instead of crashing)"
     },
     "fp16_quantized_vs_fp32": {
-      "elapsed_ms": 7554.52,
-      "sdr_vs_baseline_db": 73.4,
-      "null_vs_baseline_dbfs": -107.76,
+      "elapsed_ms": 10868.25,
+      "sdr_vs_baseline_db": 73.69,
+      "null_vs_baseline_dbfs": -91.45,
       "note": "IEEE 754 fp16 precision (~-72 dBFS quantization floor vs -140 dBFS fp32); kept opt-in (fp16_inference=False by default)"
     }
   },
@@ -178,132 +178,80 @@
     "legacy_v2": {
       "runs": [
         {
-          "decode_ms": 2.15,
-          "inference_ms": 7822.29,
-          "postprocess_ms": 189.83,
-          "write_ms": 9.37,
-          "total_ms": 8023.64
+          "decode_ms": 4.16,
+          "inference_ms": 10743.35,
+          "postprocess_ms": 307.57,
+          "write_ms": 11.02,
+          "total_ms": 11066.1
         },
         {
-          "decode_ms": 1.97,
-          "inference_ms": 7554.29,
-          "postprocess_ms": 197.74,
-          "write_ms": 12.84,
-          "total_ms": 7766.84
+          "decode_ms": 3.52,
+          "inference_ms": 10677.38,
+          "postprocess_ms": 329.51,
+          "write_ms": 16.14,
+          "total_ms": 11026.55
         },
         {
-          "decode_ms": 1.89,
-          "inference_ms": 7114.09,
-          "postprocess_ms": 204.28,
-          "write_ms": 10.59,
-          "total_ms": 7330.85
+          "decode_ms": 3.04,
+          "inference_ms": 10745.4,
+          "postprocess_ms": 319.98,
+          "write_ms": 15.73,
+          "total_ms": 11084.15
         }
       ],
       "median": {
-        "decode_ms": 1.97,
-        "inference_ms": 7554.29,
-        "postprocess_ms": 197.74,
-        "write_ms": 10.59,
-        "total_ms": 7766.84
+        "decode_ms": 3.52,
+        "inference_ms": 10743.35,
+        "postprocess_ms": 319.98,
+        "write_ms": 15.73,
+        "total_ms": 11066.1
       },
       "spread": {
-        "decode_ms": 0.26,
-        "inference_ms": 708.2,
-        "postprocess_ms": 14.45,
-        "write_ms": 3.47,
-        "total_ms": 692.79
+        "decode_ms": 1.12,
+        "inference_ms": 68.02,
+        "postprocess_ms": 21.94,
+        "write_ms": 5.12,
+        "total_ms": 57.6
       }
     },
     "rebuild_v3": {
       "runs": [
         {
-          "decode_ms": 1.81,
-          "inference_ms": 7353.14,
-          "postprocess_ms": 173.18,
-          "write_ms": 11.67,
-          "total_ms": 7539.8
+          "decode_ms": 2.16,
+          "inference_ms": 11379.0,
+          "postprocess_ms": 293.81,
+          "write_ms": 28.14,
+          "total_ms": 11703.11
         },
         {
-          "decode_ms": 2.45,
-          "inference_ms": 7578.91,
-          "postprocess_ms": 166.17,
-          "write_ms": 19.2,
-          "total_ms": 7766.73
+          "decode_ms": 2.51,
+          "inference_ms": 10836.51,
+          "postprocess_ms": 264.9,
+          "write_ms": 15.35,
+          "total_ms": 11119.27
         },
         {
-          "decode_ms": 1.9,
-          "inference_ms": 7315.73,
-          "postprocess_ms": 160.93,
-          "write_ms": 13.23,
-          "total_ms": 7491.79
+          "decode_ms": 3.73,
+          "inference_ms": 10665.47,
+          "postprocess_ms": 251.78,
+          "write_ms": 20.02,
+          "total_ms": 10941.0
         }
       ],
       "median": {
-        "decode_ms": 1.9,
-        "inference_ms": 7353.14,
-        "postprocess_ms": 166.17,
-        "write_ms": 13.23,
-        "total_ms": 7539.8
+        "decode_ms": 2.51,
+        "inference_ms": 10836.51,
+        "postprocess_ms": 264.9,
+        "write_ms": 20.02,
+        "total_ms": 11119.27
       },
       "spread": {
-        "decode_ms": 0.64,
-        "inference_ms": 263.18,
-        "postprocess_ms": 12.25,
-        "write_ms": 7.53,
-        "total_ms": 274.94
+        "decode_ms": 1.57,
+        "inference_ms": 713.53,
+        "postprocess_ms": 42.03,
+        "write_ms": 12.79,
+        "total_ms": 762.11
       }
-    }
-  },
-  "concurrency_scaling": {
-    "1_workers": {
-      "workers": 1,
-      "threads_per_worker": 2,
-      "rss_per_worker_mb": [
-        1250
-      ],
-      "total_pool_rss_mb": 1250,
-      "separate_model_copy_per_process": true,
-      "batch_4_jobs_elapsed_s": 9.095,
-      "jobs_per_minute": 26.39
-    },
-    "2_workers": {
-      "workers": 2,
-      "threads_per_worker": 1,
-      "rss_per_worker_mb": [
-        962,
-        938
-      ],
-      "total_pool_rss_mb": 1900,
-      "separate_model_copy_per_process": true,
-      "batch_4_jobs_elapsed_s": 8.075,
-      "jobs_per_minute": 29.72
-    },
-    "3_workers": {
-      "workers": 3,
-      "threads_per_worker": 1,
-      "rss_per_worker_mb": [
-        926,
-        634,
-        635
-      ],
-      "total_pool_rss_mb": 2195,
-      "separate_model_copy_per_process": true,
-      "batch_4_jobs_elapsed_s": 8.995,
-      "jobs_per_minute": 26.68
-    },
-    "4_workers": {
-      "workers": 4,
-      "threads_per_worker": 1,
-      "rss_per_worker_mb": [
-        634,
-        634,
-        634,
-        634
-      ],
-      "total_pool_rss_mb": 2536,
-      "separate_model_copy_per_process": true,
-      "batch_4_jobs_elapsed_s": 12.517,
-      "jobs_per_minute": 19.17
     }
   },
   "chunked_long_file": {
@@ -311,20 +259,6 @@
     "output_samples": 529200,
     "duration_exact_match": true,
     "max_seam_derivative": 0.1749,
-    "rss_mb": 1215
-  },
-  "soak_100_jobs": {
-    "rss_by_job_mb": {
-      "job_1": 1215,
-      "job_10": 1215,
-      "job_25": 1215,
-      "job_50": 1215,
-      "job_75": 1215,
-      "job_100": 1215
-    },
-    "rss_job_10_mb": 1215,
-    "rss_job_100_mb": 1215,
-    "growth_pct_after_warmup": 0.0,
-    "passed_under_5pct_gate": true
+    "rss_mb": 1250
   }
 }

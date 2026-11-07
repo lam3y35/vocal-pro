@@ -342,7 +342,8 @@ fn test_hardware_detection_all_6_tiers_battery_and_non_cuda_gpu() {
         ..base_spec.clone()
     });
     assert_eq!(p_ws.device_tier, "workstation_cpu");
-    assert_eq!(p_ws.recommended_max_concurrent_jobs, 2);
+    // CPU default is ONE worker even on a 32-thread box (concurrency must be earned by calibration, ISS-012).
+    assert_eq!(p_ws.recommended_max_concurrent_jobs, 1);
     assert_eq!(p_ws.recommended_shifts, 1);
 
     // Tier 5: standard_cpu (8 logical cores, 8 GB RAM, AMD GPU without CUDA)
@@ -451,6 +452,19 @@ async fn test_multi_process_parallel_batch_and_sigkill_crash_isolation() {
         Some(false)
     );
 
+    // Without the override the hard cap (physical_cores/4, RAM) clamps this to 1 on small CI runners / the 2-core VM.
+    ctx.set_max_concurrent_jobs(2).unwrap();
+    let clamped = ctx.worker_health().max_concurrent_workers as usize;
+    let probe = vocalpro_lib::system::probe_ram_and_cores();
+    let expected_cap = vocalpro_lib::system::worker_hard_cap(
+        probe.physical_cores,
+        probe.available_ram_mb,
+        false,
+        None,
+        4,
+    ) as usize;
+    assert_eq!(clamped, expected_cap.min(2));
+    std::env::set_var("VOCALPRO_WORKER_CAP_OVERRIDE", "2");
     ctx.set_max_concurrent_jobs(2).unwrap();
     assert_eq!(ctx.worker_health().max_concurrent_workers, 2);
 
@@ -614,4 +628,23 @@ fn test_settings_persistence_per_key_reset_and_json_import_export() {
         reimported.get("denoise_strength").and_then(|v| v.as_f64()),
         Some(0.75)
     );
+}
+
+#[test]
+fn test_worker_hard_cap_uses_physical_cores_and_ram_and_vram() {
+    use vocalpro_lib::system::worker_hard_cap;
+    // The 2-core / 7.9 GB VM that produced the 12.5 s vs 8.1 s data: must be 1 even though RAM alone would allow 4.
+    assert_eq!(worker_hard_cap(2, 7000, false, None, 4), 1);
+    // RAM alone would allow 4 (15 GB free) but 4 physical cores -> 1 CPU worker.
+    assert_eq!(worker_hard_cap(4, 15000, false, None, 4), 1);
+    assert_eq!(worker_hard_cap(8, 15000, false, None, 4), 2);
+    assert_eq!(worker_hard_cap(16, 64000, false, None, 4), 4);
+    // RAM bound: 16 cores but only 4 GB free -> 1.
+    assert_eq!(worker_hard_cap(16, 4000, false, None, 4), 1);
+    // CUDA is bounded by VRAM (4 GB/worker) and RAM, not by CPU cores.
+    assert_eq!(worker_hard_cap(2, 15000, true, Some(12288), 4), 3);
+    assert_eq!(worker_hard_cap(2, 15000, true, Some(6144), 4), 1);
+    // Real probe on this machine never exceeds cores/4 (CPU) and is >= 1.
+    let probe = vocalpro_lib::system::probe_ram_and_cores();
+    assert!(probe.physical_cores >= 1 && probe.available_ram_mb > 0);
 }

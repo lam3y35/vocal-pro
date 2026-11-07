@@ -18,3 +18,7 @@ benchmarks/reference-set/*.wav
 benchmarks/reference-set/*.mp4
 benchmarks/golden/*.wav
 benchmarks/golden/*.mid
+
+# real CC audio is fetched, not committed
+benchmarks/reference-real/*.wav
+benchmarks/reference-real/*_source.*

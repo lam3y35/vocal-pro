@@ -66,30 +66,27 @@ pub struct WorkerSupervisor {
     event_tx: broadcast::Sender<WorkerEvent>,
 }
 
+/// Default pool size: ONE worker on CPU-only machines (calibration may raise it); never above the hard cap.
 fn compute_memory_aware_default_workers() -> usize {
-    let logical_cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    let mut avail_ram_mb: u64 = 6144;
-    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-        for line in meminfo.lines() {
-            if line.starts_with("MemAvailable:") {
-                if let Some(kb) = line
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|s| s.parse::<u64>().ok())
-                {
-                    avail_ram_mb = kb / 1024;
-                }
-            }
-        }
+    1
+}
+
+fn current_hard_cap(cuda: bool, vram_mb: Option<u64>) -> usize {
+    // Explicit expert/test override (benchmarks, CI runners with few cores): VOCALPRO_WORKER_CAP_OVERRIDE=N
+    if let Some(n) = std::env::var("VOCALPRO_WORKER_CAP_OVERRIDE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        return n.clamp(1, MAX_POOL_WORKERS);
     }
-    // Addendum #3: Only default to >1 concurrent heavy CPU separation worker when >=16 threads AND >=12 GB free RAM.
-    if logical_cores >= 16 && avail_ram_mb >= 12000 {
-        2
-    } else {
-        1
-    }
+    let p = crate::system::probe_ram_and_cores();
+    crate::system::worker_hard_cap(
+        p.physical_cores,
+        p.available_ram_mb,
+        cuda,
+        vram_mb,
+        MAX_POOL_WORKERS as u32,
+    ) as usize
 }
 
 impl WorkerSupervisor {
@@ -128,8 +125,18 @@ impl WorkerSupervisor {
         }
     }
 
+    /// Current hard cap (RAM, physical cores, VRAM) for concurrent workers on this machine.
+    pub fn hard_worker_cap(&self) -> usize {
+        let (cuda, vram) = {
+            let g = self.inner.lock().unwrap();
+            (g.health.cuda_available, g.health.vram_mb)
+        };
+        current_hard_cap(cuda, vram)
+    }
+
     pub fn set_max_concurrent_workers(&self, max_workers: usize) {
-        let clamped = max_workers.clamp(1, MAX_POOL_WORKERS);
+        let cap = self.hard_worker_cap();
+        let clamped = max_workers.clamp(1, cap);
         {
             let mut guard = self.inner.lock().unwrap();
             guard.max_concurrent_workers = clamped;

@@ -8,15 +8,15 @@ To prevent expectation bias during listening, `candidate_A_vocals.wav` and `cand
 
 ## 1. Track Manifest & Licensing
 
-All 5 tracks are generated deterministically by `benchmarks/generate_reference_set.py` (CC0 Public Domain / MIT) so they can be committed to git without copyright restrictions:
+All 5 tracks are real music recordings sourced from Wikimedia Commons under Creative Commons / Public Domain licenses (manifest details in `benchmarks/reference-real/MANIFEST.json` and `docs/licenses/THIRD_PARTY.md`):
 
-| Track Folder | Source Track | Sample Rate / Channels | Musical & Acoustic Characteristics |
-|---|---|---|---|
-| `track_01/` | `track_01_pop_stereo_44k.wav` | 44.1 kHz Stereo | 220 Hz vibrato lead vocal + 5 harmonics + 55 Hz bass + 120 BPM drum transients + -45 dBFS room floor |
-| `track_02/` | `track_02_mono_48k.wav` | 48.0 kHz Mono (resampled to 44.1 kHz Stereo) | 330 Hz vocal melody + 110 Hz bass harmonic |
-| `track_03/` | `track_03_quiet_dynamic.wav` | 44.1 kHz Stereo | Low-level `-30 dBFS` dynamic range test |
-| `track_04/` | `track_04_clipped_hot.wav` | 44.1 kHz Stereo | Hard-clipped `0.0 dBFS` master limiter test |
-| `track_05/` | `track_05_silence_edges.wav` | 44.1 kHz Stereo | Alternating silence & vocal phrases (VAD gate attack/release & noise floor test) |
+| Track Folder | Title & Artist | License | Format & Excerpt | Musical & Acoustic Characteristics |
+|---|---|---|---|---|
+| `track_01/` | *The Shelby Blues* — David Mumford | CC BY 4.0 | 44.1 kHz Stereo, 30s excerpt (20s–50s) | Blues vocal + acoustic guitar band; warm vocal lead, dynamic picking transients |
+| `track_02/` | *The Vistas Missing Views* — The Rope River Blues Band | CC BY 3.0 US | 44.1 kHz Stereo, 30s excerpt (40s–70s) | Rock/blues band; aggressive electric guitar, drums, upfront male vocal |
+| `track_03/` | *Rainy weather blues* — Bessie Smith (1920s) | Public domain | 48.0 kHz Mono (resampled to 44.1k Stereo), 30s excerpt (20s–50s) | Historic 1920s shellac recording; shellac surface noise floor, high-dynamic vintage vocal |
+| `track_04/` | *Skyscrapers* — Airmen of Note (US Air Force Band) | Public domain | 44.1 kHz Stereo, 30s excerpt (30s–60s) | Dense big-band jazz orchestra; powerful brass section, complex harmonic overlap |
+| `track_05/` | *Friendly Evil Gangsta Synth Hip Hop* — Mesostic | CC0 Public Domain | 44.1 kHz Stereo, 30s excerpt (20s–50s) | Electronic synth hip-hop; sub-bass 808s, synthetic punch drums, hard vocal/lead lines |
 
 ---
 

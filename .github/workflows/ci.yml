@@ -59,6 +59,17 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_hardware_detection_all_6_tiers_battery_and_non_cuda_gpu
           cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_settings_persistence_per_key_reset_and_json_import_export
           cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_queue_priority_reorder_pause_resume_and_sqlite_persistence
+          cargo test --manifest-path src-tauri/Cargo.toml --test integration_tests -- test_worker_hard_cap_uses_physical_cores_and_ram_and_vram
+      - name: Run Real Binary Self-Test (IPC / Commands / DB / Worker)
+        run: |
+          cargo run --bin vocalpro --manifest-path src-tauri/Cargo.toml -- --selftest
+      - name: Upload Windows Binary Artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: vocalpro-windows-x86_64
+          path: src-tauri/target/debug/vocalpro.exe
+          retention-days: 7
 
   frontend-typecheck-and-build:
     name: React 19 + TypeScript Strict Build

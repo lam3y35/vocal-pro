@@ -1,0 +1,29 @@
+{
+  "benchmark": "100_job_soak_real_htdemucs_worker_pool",
+  "labels": [
+    "[REAL_MODEL]",
+    "[REAL_WORKER_SUBPROCESS]",
+    "[LINUX_VM]"
+  ],
+  "model": "htdemucs",
+  "jobs_completed": 100,
+  "total_elapsed_s": 425.18,
+  "mean_job_elapsed_s": 4.251,
+  "rss_job_10_mb": 1288,
+  "rss_job_100_mb": 1788,
+  "rss_growth_pct_after_warmup": 38.82,
+  "rss_samples_mb": {
+    "job_1": 1035,
+    "job_10": 1288,
+    "job_20": 1351,
+    "job_30": 1351,
+    "job_40": 1788,
+    "job_50": 1788,
+    "job_60": 1820,
+    "job_70": 1788,
+    "job_80": 1788,
+    "job_90": 1851,
+    "job_100": 1788
+  },
+  "passed_under_5pct_gate": false
+}
