@@ -20,6 +20,8 @@ use crate::worker::job_queue::JobRecord;
 use crate::worker::protocol::{HostCommandPayload, JobOptions, WorkerEvent};
 use crate::worker::supervisor::{WorkerHealth, WorkerSupervisor};
 
+pub mod tauri_bridge;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnalysisResult {
     pub bpm: f64,

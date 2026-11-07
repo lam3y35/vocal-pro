@@ -61,8 +61,8 @@ def main() -> int:
 
     # 3. Verify Frontend TypeScript Contracts & Production Vite Bundle (N1, N6, N8)
     ok_ui, dt_ui, out_ui = run_step(
-        "React 19 + TypeScript Strict Typecheck & Production Bundle (pnpm build)",
-        ["pnpm", "build"],
+        "React 19 + TypeScript Strict Typecheck & Production Bundle (npm run build)",
+        ["npm", "run", "build"],
     )
     checks.append(
         {
@@ -74,6 +74,22 @@ def main() -> int:
     print(f"[{'PASS' if ok_ui else 'FAIL'}] Frontend TypeScript & Vite Production Build ({dt_ui}s)")
     if not ok_ui:
         print(out_ui)
+
+    # 4. Verify Real Binary Native Self-Test (IPC / Commands / DB / Worker)
+    ok_st, dt_st, out_st = run_step(
+        "Real Binary Native Self-Test (vocalpro --selftest)",
+        ["cargo", "run", "--manifest-path", "src-tauri/Cargo.toml", "--", "--selftest"],
+    )
+    checks.append(
+        {
+            "name": "Real Compiled Native Binary Self-Test (IPC / Commands / DB / Worker)",
+            "passed": ok_st,
+            "elapsed_s": dt_st,
+        }
+    )
+    print(f"[{'PASS' if ok_st else 'FAIL'}] Real Binary Native Self-Test ({dt_st}s)")
+    if not ok_st:
+        print(out_st)
 
     all_passed = all(c["passed"] for c in checks)
     report_path = ROOT_DIR / "benchmarks" / "baseline" / "shipping_verification.json"

@@ -1,0 +1,26 @@
+{
+  "version": "3.0.0",
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "Python AI Worker, Golden DSP Null-Tests & Hardware Optimizer",
+      "passed": true,
+      "elapsed_s": 80.96
+    },
+    {
+      "name": "Rust Core, Multi-Process Worker Pool & SQLite Migration",
+      "passed": true,
+      "elapsed_s": 32.99
+    },
+    {
+      "name": "React 19 + TypeScript Strict Typecheck & Production Bundle",
+      "passed": true,
+      "elapsed_s": 5.17
+    },
+    {
+      "name": "Real Compiled Native Binary Self-Test (IPC / Commands / DB / Worker)",
+      "passed": true,
+      "elapsed_s": 3.05
+    }
+  ]
+}

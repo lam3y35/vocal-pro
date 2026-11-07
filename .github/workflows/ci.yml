@@ -63,12 +63,18 @@ jobs:
       - name: Run Real Binary Self-Test (IPC / Commands / DB / Worker)
         run: |
           cargo run --bin vocalpro --manifest-path src-tauri/Cargo.toml -- --selftest
+      - name: Build Windows Desktop Release Binary (Tauri Shell + Embedded Frontend)
+        if: matrix.os == 'windows-latest'
+        run: |
+          npm install
+          npm run build
+          cargo build --release --bin vocalpro --manifest-path src-tauri/Cargo.toml --features desktop-shell
       - name: Upload Windows Binary Artifact
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: vocalpro-windows-x86_64
-          path: src-tauri/target/debug/vocalpro.exe
+          path: src-tauri/target/release/vocalpro.exe
           retention-days: 7
 
   frontend-typecheck-and-build:

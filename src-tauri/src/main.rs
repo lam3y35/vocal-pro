@@ -107,9 +107,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return run_selftest(&ctx);
     }
 
-    println!(
-        "VocalPro v3 Core initialized at {}",
-        ctx.app_data_dir.display()
-    );
-    Ok(())
+    #[cfg(feature = "desktop-shell")]
+    {
+        use vocalpro_lib::commands::tauri_bridge::bridge;
+        tauri::Builder::default()
+            .manage(ctx)
+            .invoke_handler(tauri::generate_handler![
+                bridge::worker_health,
+                bridge::restart_worker,
+                bridge::pause_queue,
+                bridge::resume_queue,
+                bridge::set_job_priority,
+                bridge::reorder_job,
+                bridge::list_jobs,
+                bridge::cancel_separation_job,
+                bridge::start_separation_batch,
+                bridge::fast_waveform,
+                bridge::analyze_audio_file,
+                bridge::export_stem_midi,
+                bridge::calibrate_hardware,
+                bridge::mixer_load_folder,
+                bridge::mixer_set_gain,
+                bridge::mixer_set_mute,
+                bridge::mixer_set_solo,
+                bridge::mixer_export_mix,
+                bridge::mixer_export_separate,
+                bridge::list_outputs,
+                bridge::list_separation_history,
+                bridge::clear_separation_history,
+                bridge::list_download_history,
+                bridge::clear_download_history,
+                bridge::download_media_url,
+                bridge::list_models,
+                bridge::register_file_associations,
+                bridge::create_desktop_shortcut,
+                bridge::export_diagnostic_bundle,
+                bridge::changelog,
+                bridge::get_settings,
+                bridge::update_settings,
+                bridge::reset_setting_key,
+                bridge::reset_settings_to_defaults,
+                bridge::export_settings_json,
+                bridge::import_settings_json,
+                bridge::set_max_concurrent_jobs,
+                bridge::detect_hardware,
+                bridge::auto_optimize_for_hardware,
+            ])
+            .run(tauri::generate_context!())?;
+        return Ok(());
+    }
+
+    #[cfg(not(feature = "desktop-shell"))]
+    {
+        println!(
+            "VocalPro v3 Core initialized at {}",
+            ctx.app_data_dir.display()
+        );
+        Ok(())
+    }
 }
