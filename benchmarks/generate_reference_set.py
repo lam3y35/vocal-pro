@@ -107,35 +107,37 @@ def main() -> None:
     manifest["track_05_silence_sections.wav"] = {"sr": 44100, "channels": 2, "duration_s": 12.0}
 
     # 6. Video file (.mp4 with H.264 video + AAC stereo audio, 8s)
+    import shutil
     p6 = REF_DIR / "track_06_video_sample.mp4"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=0x12131a:s=320x240:d=8:r=15",
-            "-i",
-            str(p1),
-            "-t",
-            "8",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            str(p6),
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    manifest["track_06_video_sample.mp4"] = {"sr": 44100, "channels": 2, "duration_s": 8.0, "video": True}
+    if shutil.which("ffmpeg"):
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x12131a:s=320x240:d=8:r=15",
+                "-i",
+                str(p1),
+                "-t",
+                "8",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                str(p6),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        manifest["track_06_video_sample.mp4"] = {"sr": 44100, "channels": 2, "duration_s": 8.0, "video": True}
 
     # 7. Corrupt file (truncated WAV header)
     p7 = REF_DIR / "track_07_corrupt.wav"
