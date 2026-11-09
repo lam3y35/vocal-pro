@@ -35,9 +35,9 @@ jobs:
           npm install
           npm run build
 
-      - name: Build Rust Desktop Release Binary
+      - name: Build Rust Desktop Release Binary (Tauri Shell + Embedded Frontend)
         run: |
-          cargo build --release --manifest-path src-tauri/Cargo.toml --features desktop-shell
+          npx tauri build --no-bundle -f desktop-shell
 
       - name: Stage Release Bundle & Preload Model
         run: |

@@ -68,7 +68,7 @@ jobs:
         run: |
           npm install
           npm run build
-          cargo build --release --bin vocalpro --manifest-path src-tauri/Cargo.toml --features desktop-shell
+          npx tauri build --no-bundle -f desktop-shell
       - name: Upload Windows Binary Artifact
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4

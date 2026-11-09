@@ -16,7 +16,7 @@ path = "src/main.rs"
 [features]
 default = []
 # Enable full Tauri v2 WebView + CPAL hardware audio device on desktop targets with WebKit2GTK/WebView2 & ALSA/WASAPI
-desktop-shell = ["dep:tauri", "dep:cpal", "dep:tauri-build"]
+desktop-shell = ["dep:tauri", "dep:cpal", "dep:tauri-build", "tauri/custom-protocol"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
