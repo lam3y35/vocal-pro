@@ -87,17 +87,57 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let python_bin = std::env::var("VOCALPRO_PYTHON")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
+            // Check adjacent bundled engine directories (Windows standalone distribution)
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(parent) = exe.parent() {
+                    let candidates = [
+                        parent.join("engine").join("python.exe"),
+                        parent.join("engine").join("Scripts").join("python.exe"),
+                        parent.join("resources").join("engine").join("python.exe"),
+                        parent.join("resources").join("engine").join("Scripts").join("python.exe"),
+                        parent.join(".venv").join("Scripts").join("python.exe"),
+                        parent.join(".venv").join("bin").join("python"),
+                    ];
+                    for c in candidates {
+                        if c.exists() {
+                            return c;
+                        }
+                    }
+                }
+            }
+            // Check %APPDATA%/VocalPro/engine/venv
+            let app_data_py = app_data_dir.join("engine").join("venv").join("Scripts").join("python.exe");
+            if app_data_py.exists() {
+                return app_data_py;
+            }
             let venv = PathBuf::from("/home/antigravity/.venv/bin/python");
             if venv.exists() {
                 venv
-            } else {
+            } else if cfg!(windows) {
                 PathBuf::from("python")
+            } else {
+                PathBuf::from("python3")
             }
         });
 
     let worker_dir = std::env::var("VOCALPRO_WORKER_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("worker"));
+        .unwrap_or_else(|_| {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(parent) = exe.parent() {
+                    let candidates = [
+                        parent.join("resources").join("worker"),
+                        parent.join("worker"),
+                    ];
+                    for c in candidates {
+                        if c.exists() {
+                            return c;
+                        }
+                    }
+                }
+            }
+            PathBuf::from("worker")
+        });
 
     let is_test_model = std::env::var("VOCALPRO_TEST_FAST_MODEL").is_ok();
     let ctx = AppContext::new(app_data_dir, python_bin, worker_dir, is_test_model)?;

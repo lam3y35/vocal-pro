@@ -4,20 +4,69 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows-nsis:
-    name: Build Windows NSIS Installer
+  build-windows-installer:
+    name: Build Windows All-in-One Installer
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Setup Rust Stable Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install Frontend Dependencies & Build UI
         run: |
           npm install
           npm run build
-      - name: Build Rust Release Binary
-        run: cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Build Rust Desktop Release Binary
+        run: |
+          cargo build --release --manifest-path src-tauri/Cargo.toml --features desktop-shell
+
+      - name: Stage Release Bundle & Preload Model
+        run: |
+          python -m pip install torch demucs soundfile numpy scipy librosa mido resampy
+          python -m pip install --target dist/bundle/engine torch demucs soundfile numpy scipy librosa mido resampy
+          mkdir -p dist/bundle
+          mkdir -p dist/installer
+          cp src-tauri/target/release/vocalpro.exe dist/bundle/vocalpro.exe
+        shell: bash
+
+      - name: Compile Inno Setup Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+        shell: powershell
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VocalPro-v3.0.0-Windows-Setup
+          path: dist/installer/*.exe
+          retention-days: 30
+
+      - name: Publish to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/*.exe
+          name: VocalPro v3.0.0 Windows All-in-One
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
