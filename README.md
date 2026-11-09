@@ -4,6 +4,51 @@ VocalPro v3.0.0 is an end-to-end architectural rebuild of [lam3y35/vocal-pro](ht
 
 ---
 
+## 📥 تحميل البرنامج للمستخدم النهائي (Download for Windows Users)
+
+إذا كنت مستخدماً وتريد تشغيل البرنامج مباشرة دون الحاجة لأي أدوات برمجية:
+
+* 📦 **[تحميل حزمة الويندوز الجاهزة (VocalPro-v3.0.0-Windows.zip - 4.9 MB)](https://github.com/lam3y35/vocal-pro-rebuild/raw/main/release/VocalPro-v3.0.0-Windows.zip)**
+* 🚀 **طريقة التشغيل:** بعد التحميل، قم بفك ضغط الملف واضغط مرتين على `vocalpro.exe` وسيعمل البرنامج فوراً.
+* 📂 **تصفح مجلد الإصدار:** يمكنك أيضاً الاطلاع على [مجلد release](release/) للحصول على ملف الـ `.exe` المنفرد وتعليمات التشغيل.
+
+---
+
+## 💻 دليل المطورين السريع (Developer Quickstart)
+
+إذا كنت مطوراً وتريد تشغيل المشروع من الكود المصدري والمساهمة فيه:
+
+### 1. المتطلبات (Prerequisites):
+* **Node.js**: الإصدار 20 أو 22 LTS (`npm` أو `pnpm`)
+* **Rust**: أحدث إصدار ثابت (`cargo` & `rustc`)
+* **Python**: 3.10 أو 3.11 مع تثبيت `torch`, `demucs`, `soundfile`, `scipy`, `librosa`
+
+### 2. التثبيت والتشغيل المحلي (Setup & Dev):
+```bash
+# تثبيت حزم واجهة المستخدم
+npm install
+
+# تشغيل التطبيق في وضع التطوير (Tauri Desktop Shell + React Hot Reload)
+npm run tauri dev
+
+# أو تشغيل واجهة الويب فقط للتعديل السريع:
+npm run dev
+```
+
+### 3. تشغيل الاختبارات الشاملة (Run Tests):
+```bash
+# اختبارات بايثون ومحرك الذكاء الاصطناعي واختبارات التطابق الرياضي (Golden Null Tests):
+pytest worker/tests -v
+
+# اختبارات محرك الرست (Rust Core Integration Tests):
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# فحص أنواع TypeScript وبناء الواجهة:
+npm run build
+```
+
+---
+
 ## Highlights & Architectural Improvements
 
 1. **Zero Localhost Ports (N4):** Replaces the legacy FastAPI HTTP/WebSocket server on port `8765` with a persistent, supervised Python AI worker communicating over **length-delimited JSON Lines (`stdio` JSONL)** with OS-level stdout descriptor duplication (`os.dup(1)` + `os.dup2(2, 1)`) so library chatter never corrupts the protocol.
