@@ -46,8 +46,6 @@ jobs:
           mkdir -p dist/bundle
           mkdir -p dist/installer
           cp src-tauri/target/release/vocalpro.exe dist/bundle/vocalpro.exe
-          cp src-tauri/target/release/vocalpro.exe release/vocalpro.exe
-          cd release && zip -9 -r VocalPro-v3.0.0-Windows.zip vocalpro.exe Start-VocalPro.bat README.md worker
         shell: bash
 
       - name: Compile Inno Setup Installer
