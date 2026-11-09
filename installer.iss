@@ -53,13 +53,13 @@ Source: "dist\bundle\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "src-tauri\icons\icon.ico"; DestDir: "{app}"; DestName: "vocalpro.ico"; Flags: ignoreversion
 
 ; 2. Embedded Python AI Engine & Dependencies
-Source: "dist\bundle\engine\*"; DestDir: "{app}\engine"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\bundle\engine\*"; DestDir: "{app}\engine"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 ; 3. Python AI Worker Code
 Source: "worker\vocalpro_worker\*"; DestDir: "{app}\worker\vocalpro_worker"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; 4. Preloaded Offline AI Models
-Source: "dist\bundle\models\*"; DestDir: "{localappdata}\VocalPro\models"; Flags: ignoreversion recursesubdirs createallsubdirs optional
+Source: "dist\bundle\models\*"; DestDir: "{localappdata}\VocalPro\models"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\vocalpro.ico"
