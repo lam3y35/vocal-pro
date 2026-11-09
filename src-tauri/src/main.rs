@@ -94,7 +94,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         parent.join("engine").join("python.exe"),
                         parent.join("engine").join("Scripts").join("python.exe"),
                         parent.join("resources").join("engine").join("python.exe"),
-                        parent.join("resources").join("engine").join("Scripts").join("python.exe"),
+                        parent
+                            .join("resources")
+                            .join("engine")
+                            .join("Scripts")
+                            .join("python.exe"),
                         parent.join(".venv").join("Scripts").join("python.exe"),
                         parent.join(".venv").join("bin").join("python"),
                     ];
@@ -106,7 +110,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             // Check %APPDATA%/VocalPro/engine/venv
-            let app_data_py = app_data_dir.join("engine").join("venv").join("Scripts").join("python.exe");
+            let app_data_py = app_data_dir
+                .join("engine")
+                .join("venv")
+                .join("Scripts")
+                .join("python.exe");
             if app_data_py.exists() {
                 return app_data_py;
             }
