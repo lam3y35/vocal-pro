@@ -12,6 +12,7 @@ import {
 import { CanvasWaveform } from "../components/CanvasWaveform";
 import { StemMixerStrip } from "../components/StemMixerStrip";
 import { TRANSLATIONS } from "../i18n/translations";
+import { invokeCommand } from "../ipc";
 import { useJobsStore, useLibraryStore, useMixerStore, useSystemStore } from "../state/appStores";
 
 export const ResultsScreen: React.FC = () => {
@@ -62,38 +63,46 @@ export const ResultsScreen: React.FC = () => {
           </div>
 
           <div className="space-y-2 max-h-[540px] overflow-y-auto pr-1">
-            {outputs.map((out) => {
-              const selected = out.id === activeOutput?.id;
-              return (
-                <button
-                  key={out.id}
-                  type="button"
-                  onClick={() => selectOutput(out.id)}
-                  className={`w-full text-left rounded-xl p-3 border transition space-y-1.5 ${
-                    selected
-                      ? "bg-[#6C63FF]/20 border-[#6C63FF] text-white"
-                      : "bg-[#0F1016] border-[#25293A] text-slate-300 hover:border-slate-600"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-xs truncate">{out.folder_name}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#161822] text-[#00D4AA]">
-                      {out.stems.length} stems
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {out.stems.map((s) => (
-                      <span
-                        key={s.name}
-                        className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-[#161822] text-slate-400"
-                      >
-                        {s.name}
+            {outputs.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-[#25293A] p-6 text-center text-slate-500 text-xs">
+                No separated outputs yet.
+                <br />
+                Add an audio track in the Separation tab to get started!
+              </div>
+            ) : (
+              outputs.map((out) => {
+                const selected = out.id === activeOutput?.id;
+                return (
+                  <button
+                    key={out.id}
+                    type="button"
+                    onClick={() => selectOutput(out.id)}
+                    className={`w-full text-left rounded-xl p-3 border transition space-y-1.5 ${
+                      selected
+                        ? "bg-[#6C63FF]/20 border-[#6C63FF] text-white"
+                        : "bg-[#0F1016] border-[#25293A] text-slate-300 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-xs truncate">{out.folder_name}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#161822] text-[#00D4AA]">
+                        {out.stems.length} stems
                       </span>
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {out.stems.map((s) => (
+                        <span
+                          key={s.name}
+                          className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-[#161822] text-slate-400"
+                        >
+                          {s.name}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -107,9 +116,21 @@ export const ResultsScreen: React.FC = () => {
                   <Activity className="w-4 h-4 text-[#00D4AA]" />
                   <span>{activeOutput?.folder_name || "No Output Selected"}</span>
                 </h2>
-                <p className="text-[11px] font-mono text-slate-400">
-                  {activeOutput?.folder_path}
-                </p>
+                {activeOutput?.folder_path && (
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-mono text-slate-400 truncate max-w-md">
+                      {activeOutput.folder_path}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => invokeCommand("open_folder", { path: activeOutput.folder_path })}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F1016] border border-[#25293A] hover:border-[#00D4AA] text-[#00D4AA] text-[10px] transition shrink-0"
+                    >
+                      <FolderOpen className="w-3 h-3" />
+                      <span>Open Folder</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

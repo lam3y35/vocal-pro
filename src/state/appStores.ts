@@ -16,7 +16,7 @@ import {
   WorkerHealth,
 } from "../bindings";
 import { SupportedLocale } from "../i18n/translations";
-import { invokeCommand } from "../ipc";
+import { invokeCommand, toAssetUrl } from "../ipc";
 
 // ---------------------------------------------------------------------------
 // 1. Jobs Store (Queue, Priority, Reorder, Pause/Resume, Multi-Job Tabs, Cancel)
@@ -61,10 +61,7 @@ const SYNTH_WAVEFORM_8000 = Array.from({ length: 240 }, (_, i) => {
 const activeTimers = new Map<string, ReturnType<typeof setInterval>>();
 
 export const useJobsStore = create<JobsState>((set, get) => ({
-  selectedFiles: [
-    "C:\\Users\\Lam3y\\Music\\StudioSession_LeadVocal_44k.wav",
-    "C:\\Users\\Lam3y\\Videos\\LiveConcert_4K.mp4",
-  ],
+  selectedFiles: [],
   activeJobId: null,
   jobs: [],
   options: { ...DEFAULT_JOB_OPTIONS },
@@ -196,8 +193,8 @@ export const useJobsStore = create<JobsState>((set, get) => ({
   simulateFailedJob: () => {
     const errJob: JobRecord = {
       job_id: `job-err-${Date.now()}`,
-      input_path: "C:\\Users\\Lam3y\\Music\\Corrupted_Stream_0Byte.wav",
-      output_dir: "C:\\Users\\Lam3y\\Music\\output_vocals\\Corrupted_Stream_0Byte",
+      input_path: "corrupted_audio_stream.wav",
+      output_dir: "output_vocals/corrupted_audio_stream",
       options: { ...get().options },
       status: "failed",
       phase: "error",
@@ -212,7 +209,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       comparison_samples: [],
       error_code: "DECODE_FAILED",
       error_message:
-        "Input file 'Corrupted_Stream_0Byte.wav' is empty (0 bytes) or unreadable. Verify the file is a valid audio/video stream and retry.",
+        "Input file 'corrupted_audio_stream.wav' is empty (0 bytes) or unreadable. Verify the file is a valid audio/video stream and retry.",
       created_at: new Date().toISOString(),
       elapsed_s: 0.04,
       worker_slot: 0,
@@ -236,7 +233,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 
     void invokeCommand("start_separation_batch", {
       inputs: selectedFiles,
-      outputBaseDir: customOutputDir || "C:\\Users\\Lam3y\\Music\\output_vocals",
+      outputDir: customOutputDir || "",
       options,
     });
 
@@ -244,8 +241,8 @@ export const useJobsStore = create<JobsState>((set, get) => ({
     const newJobs: JobRecord[] = selectedFiles.map((filePath, idx) => {
       const base = filePath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || `track_${idx + 1}`;
       const outDir = customOutputDir
-        ? `${customOutputDir}\\${base}`
-        : `C:\\Users\\Lam3y\\Music\\output_vocals\\${base}`;
+        ? `${customOutputDir}/${base}`
+        : `output_vocals/${base}`;
       const segTotal = options.model === "htdemucs_ft" ? 32 : 8;
       const subTotal = options.model === "htdemucs_ft" ? 4 : options.ensemble_mode ? 2 : 1;
       const assignedSlot = idx % maxSlots;
@@ -406,6 +403,20 @@ export const useJobsStore = create<JobsState>((set, get) => ({
           });
 
           appendLog(`[job_done] ${job.job_id} finished in 4.2s -> ${builtStems.length} stems saved to ${job.output_dir}`);
+
+          void invokeCommand<OutputFolderEntry[]>("list_outputs").then((outs) => {
+            if (outs && Array.isArray(outs) && outs.length > 0) {
+              useLibraryStore.setState({ outputs: outs });
+            }
+          });
+          void invokeCommand<SeparationHistoryEntry[]>("list_separation_history").then((hists) => {
+            if (hists && Array.isArray(hists) && hists.length > 0) {
+              useLibraryStore.setState({ separationHistory: hists });
+            }
+          });
+          if (get().autoOpenFolder) {
+            void invokeCommand("open_folder", { path: job.output_dir });
+          }
         }
       }, 280);
       activeTimers.set(job.job_id, timer);
@@ -437,7 +448,7 @@ export const useJobsStore = create<JobsState>((set, get) => ({
 }));
 
 // ---------------------------------------------------------------------------
-// 2. Real-Time Stem Mixer Store (Lock-Free Rust Streaming Mixer Mirror)
+// 2. Real-Time Stem Mixer Store (HTML5 Web Audio + Lock-Free Rust Streaming)
 // ---------------------------------------------------------------------------
 interface MixerState {
   activeFolder: string;
@@ -462,87 +473,91 @@ interface MixerState {
   exportStemMidi: (stemName: string) => void;
 }
 
+const stemAudioMap = new Map<string, HTMLAudioElement>();
+let playheadTimer: ReturnType<typeof setInterval> | null = null;
+
+function syncStemVolumes(stems: StemTrackInfo[]) {
+  const hasSolo = stems.some((s) => s.solo);
+  for (const s of stems) {
+    const el = stemAudioMap.get(s.name);
+    if (!el) continue;
+    if (s.mute) {
+      el.volume = 0;
+    } else if (hasSolo) {
+      el.volume = s.solo ? Math.min(1, Math.max(0, s.gain)) : 0;
+    } else {
+      el.volume = Math.min(1, Math.max(0, s.gain));
+    }
+  }
+}
+
+function stopAllAudio() {
+  for (const el of stemAudioMap.values()) {
+    try {
+      el.pause();
+    } catch {
+      // ignore
+    }
+  }
+  if (playheadTimer) {
+    clearInterval(playheadTimer);
+    playheadTimer = null;
+  }
+}
+
 export const useMixerStore = create<MixerState>((set, get) => ({
-  activeFolder: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k",
+  activeFolder: "",
   playing: false,
-  playheadSec: 24.5,
-  durationSec: 194.2,
+  playheadSec: 0,
+  durationSec: 0,
   exportFormat: "wav",
   exportBitrate: "320k",
   lastExportMessage: null,
-  stems: [
-    {
-      name: "vocals",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_vocals.wav",
+  stems: [],
+  loadFolderStems: (entry) => {
+    stopAllAudio();
+    stemAudioMap.clear();
+
+    const newStems = entry.stems.map((s) => ({
+      name: s.name,
+      path: s.path,
       gain: 1.0,
       mute: false,
       solo: false,
-      duration_s: 194.2,
-    },
-    {
-      name: "drums",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_drums.wav",
-      gain: 0.9,
-      mute: false,
-      solo: false,
-      duration_s: 194.2,
-    },
-    {
-      name: "bass",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_bass.wav",
-      gain: 0.95,
-      mute: false,
-      solo: false,
-      duration_s: 194.2,
-    },
-    {
-      name: "guitar",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_guitar.wav",
-      gain: 0.85,
-      mute: false,
-      solo: false,
-      duration_s: 194.2,
-    },
-    {
-      name: "piano",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_piano.wav",
-      gain: 0.85,
-      mute: false,
-      solo: false,
-      duration_s: 194.2,
-    },
-    {
-      name: "other",
-      path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_other.wav",
-      gain: 0.8,
-      mute: false,
-      solo: false,
-      duration_s: 194.2,
-    },
-  ],
-  loadFolderStems: (entry) => {
-    void invokeCommand("mixer_load_folder", { folderPath: entry.folder_path });
+      duration_s: s.duration_s,
+    }));
+
+    for (const s of newStems) {
+      try {
+        const src = toAssetUrl(s.path);
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        stemAudioMap.set(s.name, audio);
+      } catch (e) {
+        console.warn("Failed to create Audio element for", s.name, e);
+      }
+    }
+
+    syncStemVolumes(newStems);
+
     set({
       activeFolder: entry.folder_path,
       durationSec: entry.duration_s || 180,
       playheadSec: 0,
       playing: false,
-      stems: entry.stems.map((s) => ({
-        name: s.name,
-        path: s.path,
-        gain: 1.0,
-        mute: false,
-        solo: false,
-        duration_s: s.duration_s,
-      })),
+      stems: newStems,
     });
+
+    void invokeCommand("mixer_load_folder", { folderPath: entry.folder_path });
   },
   setStemGain: (name, gain) => {
     const clamped = Math.max(0, Math.min(2, gain));
     void invokeCommand("mixer_set_gain", { stemName: name, gain: clamped });
-    set((s) => ({
-      stems: s.stems.map((st) => (st.name === name ? { ...st, gain: clamped } : st)),
-    }));
+    set((s) => {
+      const nextStems = s.stems.map((st) => (st.name === name ? { ...st, gain: clamped } : st));
+      syncStemVolumes(nextStems);
+      return { stems: nextStems };
+    });
   },
   toggleMute: (name) =>
     set((s) => {
@@ -554,6 +569,7 @@ export const useMixerStore = create<MixerState>((set, get) => ({
         }
         return st;
       });
+      syncStemVolumes(nextStems);
       return { stems: nextStems };
     }),
   toggleSolo: (name) =>
@@ -566,59 +582,156 @@ export const useMixerStore = create<MixerState>((set, get) => ({
         }
         return st;
       });
+      syncStemVolumes(nextStems);
       return { stems: nextStems };
     }),
   resetStems: () =>
-    set((s) => ({
-      stems: s.stems.map((st) => ({ ...st, gain: 1.0, mute: false, solo: false })),
-    })),
-  togglePlay: () =>
     set((s) => {
-      const next = !s.playing;
-      void invokeCommand("mixer_set_playing", { playing: next });
-      return { playing: next };
+      const nextStems = s.stems.map((st) => ({ ...st, gain: 1.0, mute: false, solo: false }));
+      syncStemVolumes(nextStems);
+      for (const st of nextStems) {
+        void invokeCommand("mixer_set_gain", { stemName: st.name, gain: 1.0 });
+        void invokeCommand("mixer_set_mute", { stemName: st.name, mute: false });
+        void invokeCommand("mixer_set_solo", { stemName: st.name, solo: false });
+      }
+      return { stems: nextStems };
     }),
+  togglePlay: () => {
+    const state = get();
+    if (state.stems.length === 0) return;
+
+    if (state.playing) {
+      stopAllAudio();
+      set({ playing: false });
+    } else {
+      let startSec = state.playheadSec;
+      if (startSec >= state.durationSec - 0.2) {
+        startSec = 0;
+      }
+
+      if (stemAudioMap.size === 0) {
+        for (const s of state.stems) {
+          try {
+            const src = toAssetUrl(s.path);
+            const audio = new Audio(src);
+            audio.preload = "auto";
+            stemAudioMap.set(s.name, audio);
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      syncStemVolumes(state.stems);
+
+      for (const el of stemAudioMap.values()) {
+        try {
+          el.currentTime = startSec;
+          void el.play().catch((err) => console.warn("Audio playback error:", err));
+        } catch (e) {
+          console.warn("Audio play error:", e);
+        }
+      }
+
+      if (playheadTimer) clearInterval(playheadTimer);
+      playheadTimer = setInterval(() => {
+        const firstAudio = stemAudioMap.values().next().value;
+        if (firstAudio && !isNaN(firstAudio.currentTime)) {
+          const curr = firstAudio.currentTime;
+          const dur = get().durationSec;
+          if (curr >= dur && dur > 0) {
+            stopAllAudio();
+            set({ playing: false, playheadSec: 0 });
+          } else {
+            set({ playheadSec: curr });
+          }
+        } else {
+          const next = get().playheadSec + 0.1;
+          if (next >= get().durationSec && get().durationSec > 0) {
+            stopAllAudio();
+            set({ playing: false, playheadSec: 0 });
+          } else {
+            set({ playheadSec: next });
+          }
+        }
+      }, 100);
+
+      set({ playing: true, playheadSec: startSec });
+    }
+  },
   seek: (sec) => {
     const clamped = Math.max(0, Math.min(get().durationSec, sec));
+    for (const el of stemAudioMap.values()) {
+      try {
+        el.currentTime = clamped;
+      } catch {
+        // ignore
+      }
+    }
     void invokeCommand("mixer_seek", { frame: Math.round(clamped * 44100) });
     set({ playheadSec: clamped });
   },
   setExportFormat: (fmt) => set({ exportFormat: fmt }),
   setExportBitrate: (br) => set({ exportBitrate: br }),
-  exportMix: () => {
+  exportMix: async () => {
     const { activeFolder, exportFormat, exportBitrate } = get();
-    const out = `${activeFolder}\\stem_mix.${exportFormat}`;
-    void invokeCommand("mixer_export_mix", {
-      outputPath: out,
-      format: exportFormat,
-      bitrate: exportBitrate,
-    });
-    set({
-      lastExportMessage: `Exported Mixed Track -> ${out} (${exportFormat.toUpperCase()} @ ${exportBitrate}, soft-limited -0.1 dBFS)`,
-    });
+    if (!activeFolder) {
+      set({ lastExportMessage: "No output folder selected to export mix." });
+      return;
+    }
+    const out = `${activeFolder}/stem_mix.${exportFormat}`;
+    try {
+      const res = await invokeCommand<string>("mixer_export_mix", {
+        outputPath: out,
+        format: exportFormat,
+        bitrate: exportBitrate,
+      });
+      set({
+        lastExportMessage: `Exported Mixed Track -> ${res || out} (${exportFormat.toUpperCase()} @ ${exportBitrate})`,
+      });
+      void invokeCommand("open_folder", { path: activeFolder });
+    } catch (err: any) {
+      set({ lastExportMessage: `Export mix error: ${err?.message || err}` });
+    }
   },
-  exportSeparateStems: () => {
+  exportSeparateStems: async () => {
     const { activeFolder, exportFormat, exportBitrate, stems } = get();
-    void invokeCommand("mixer_export_separate", {
-      outputDir: activeFolder,
-      format: exportFormat,
-      bitrate: exportBitrate,
-    });
-    const activeCount = stems.filter((s) => !s.mute && s.gain > 0).length;
-    set({
-      lastExportMessage: `Exported ${activeCount} custom volume-adjusted stems (*_custom.${exportFormat}) to ${activeFolder}`,
-    });
+    if (!activeFolder) {
+      set({ lastExportMessage: "No output folder selected to export stems." });
+      return;
+    }
+    try {
+      const res = await invokeCommand<string[]>("mixer_export_separate", {
+        outputDir: activeFolder,
+        format: exportFormat,
+        bitrate: exportBitrate,
+      });
+      const activeCount = res?.length || stems.filter((s) => !s.mute && s.gain > 0).length;
+      set({
+        lastExportMessage: `Exported ${activeCount} custom volume-adjusted stems (*_custom.${exportFormat}) to ${activeFolder}`,
+      });
+      void invokeCommand("open_folder", { path: activeFolder });
+    } catch (err: any) {
+      set({ lastExportMessage: `Export separate error: ${err?.message || err}` });
+    }
   },
-  exportStemMidi: (stemName) => {
+  exportStemMidi: async (stemName) => {
     const { activeFolder, stems } = get();
     const stem = stems.find((s) => s.name === stemName);
-    const out = `${activeFolder}\\${stemName}.mid`;
-    if (stem) {
-      void invokeCommand("export_stem_midi", { inputPath: stem.path, outputMidiPath: out });
+    if (!stem || !activeFolder) return;
+    const out = `${activeFolder}/${stemName}.mid`;
+    try {
+      const res = await invokeCommand<string>("export_stem_midi", {
+        inputPath: stem.path,
+        outputMidiPath: out,
+      });
+      set({
+        lastExportMessage: `Converted '${stemName}' -> ${res || out}`,
+      });
+      void invokeCommand("open_folder", { path: activeFolder });
+    } catch (err: any) {
+      set({ lastExportMessage: `MIDI conversion error: ${err?.message || err}` });
     }
-    set({
-      lastExportMessage: `Converted '${stemName}' via librosa.pyin (C2–C7, 5-frame median filter) -> ${out}`,
-    });
   },
 }));
 
@@ -644,142 +757,11 @@ interface LibraryState {
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
-  selectedOutputId: "out-default-1",
-  outputs: [
-    {
-      id: "out-default-1",
-      folder_name: "StudioSession_LeadVocal_44k",
-      folder_path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k",
-      source_filename: "StudioSession_LeadVocal_44k.wav",
-      model: "htdemucs_6s",
-      bpm: 117,
-      musical_key: "A Minor",
-      musical_scale: "minor",
-      duration_s: 194.2,
-      created_at: "2026-11-07T02:45:00Z",
-      stems: [
-        {
-          name: "vocals",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_vocals.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "drums",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_drums.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "bass",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_bass.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "guitar",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_guitar.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "piano",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_piano.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "other",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k\\StudioSession_LeadVocal_44k_other.wav",
-          duration_s: 194.2,
-          sample_rate: 44100,
-          channels: 2,
-        },
-      ],
-    },
-    {
-      id: "out-default-2",
-      folder_name: "Podcast_Interview_Episode12",
-      folder_path: "C:\\Users\\Lam3y\\Music\\output_vocals\\Podcast_Interview_Episode12",
-      source_filename: "Podcast_Interview_Episode12.mp4",
-      model: "htdemucs_ft",
-      bpm: 98,
-      musical_key: "C Major",
-      musical_scale: "major",
-      duration_s: 1420.0,
-      created_at: "2026-11-06T19:15:00Z",
-      stems: [
-        {
-          name: "vocals",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\Podcast_Interview_Episode12\\Podcast_Interview_Episode12_vocals.wav",
-          duration_s: 1420.0,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "background",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\Podcast_Interview_Episode12\\Podcast_Interview_Episode12_background.wav",
-          duration_s: 1420.0,
-          sample_rate: 44100,
-          channels: 2,
-        },
-        {
-          name: "video_clean",
-          path: "C:\\Users\\Lam3y\\Music\\output_vocals\\Podcast_Interview_Episode12\\Podcast_Interview_Episode12_clean.mp4",
-          duration_s: 1420.0,
-          sample_rate: 44100,
-          channels: 2,
-        },
-      ],
-    },
-  ],
-  analysisByFolder: {
-    "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k": {
-      bpm: 117,
-      key: "A Minor",
-      scale: "minor",
-      duration_s: 194.2,
-      waveform: SYNTH_WAVEFORM_8000,
-    },
-  },
-  separationHistory: [
-    {
-      id: "sep-h-1",
-      files: ["C:\\Users\\Lam3y\\Music\\StudioSession_LeadVocal_44k.wav"],
-      model: "htdemucs_6s",
-      device: "cuda",
-      status: "success",
-      date: "2026-11-07 02:45:00",
-      elapsed: "14.8s",
-      output_dir: "C:\\Users\\Lam3y\\Music\\output_vocals\\StudioSession_LeadVocal_44k",
-    },
-    {
-      id: "sep-h-2",
-      files: ["C:\\Users\\Lam3y\\Videos\\Podcast_Interview_Episode12.mp4"],
-      model: "htdemucs_ft",
-      device: "cuda",
-      status: "success",
-      date: "2026-11-06 19:15:00",
-      elapsed: "42.1s",
-      output_dir: "C:\\Users\\Lam3y\\Music\\output_vocals\\Podcast_Interview_Episode12",
-    },
-  ],
-  downloadHistory: [
-    {
-      id: "dl-h-1",
-      title: "Acappella_Reference_Stem.wav",
-      url: "https://cdn.studio-samples.example/audio/Acappella_Reference_Stem.wav",
-      path: "C:\\Users\\Lam3y\\AppData\\Roaming\\VocalPro\\uploads\\Acappella_Reference_Stem.wav",
-      format: "WAV",
-      quality: "Original",
-      date: "2026-11-06 18:40:12",
-    },
-  ],
+  selectedOutputId: "",
+  outputs: [],
+  analysisByFolder: {},
+  separationHistory: [],
+  downloadHistory: [],
   presets: [
     {
       name: "Ultra Clean Broadcast Vocal",
@@ -819,53 +801,52 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       useMixerStore.getState().loadFolderStems(found);
     }
   },
-  addCompletedOutput: (entry) =>
-    set((s) => ({
-      outputs: [entry, ...s.outputs.filter((o) => o.folder_path !== entry.folder_path)],
-      selectedOutputId: entry.id,
-    })),
-  runAnalysisForFolder: (folderPath) => {
-    void invokeCommand("analyze_audio_file", { inputPath: folderPath });
-    set((s) => ({
-      analysisByFolder: {
-        ...s.analysisByFolder,
-        [folderPath]: {
-          bpm: 120,
-          key: "A Minor",
-          scale: "minor",
-          duration_s: 194.2,
-          waveform: SYNTH_WAVEFORM_8000,
+  addCompletedOutput: (entry) => {
+    set((s) => {
+      const exists = s.outputs.some((o) => o.id === entry.id || o.folder_path === entry.folder_path);
+      const newOutputs = exists
+        ? s.outputs.map((o) => (o.folder_path === entry.folder_path ? entry : o))
+        : [entry, ...s.outputs];
+      return {
+        outputs: newOutputs,
+        selectedOutputId: entry.id,
+      };
+    });
+    useMixerStore.getState().loadFolderStems(entry);
+  },
+  runAnalysisForFolder: async (folderPath) => {
+    const res = await invokeCommand<AnalysisResult>("analyze_audio_file", { inputPath: folderPath });
+    if (res) {
+      set((s) => ({
+        analysisByFolder: {
+          ...s.analysisByFolder,
+          [folderPath]: res,
         },
-      },
-    }));
+      }));
+    }
   },
   addSeparationHistory: (entry) =>
     set((s) => ({
-      separationHistory: [entry, ...s.separationHistory],
+      separationHistory: [entry, ...s.separationHistory.filter((h) => h.id !== entry.id)],
     })),
   clearSeparationHistory: () => {
     void invokeCommand("clear_separation_history");
     set({ separationHistory: [] });
   },
-  downloadMediaUrl: (url) => {
-    void invokeCommand("download_media_url", { url });
-    const rawName = url.split("?")[0].split("/").pop() || `media_${Date.now()}.mp3`;
-    const localPath = `C:\\Users\\Lam3y\\AppData\\Roaming\\VocalPro\\uploads\\${rawName}`;
-    const ext = (rawName.split(".").pop() || "MP3").toUpperCase();
-    const entry: DownloadHistoryEntry = {
-      id: `dl-${Date.now()}`,
-      title: rawName,
-      url,
-      path: localPath,
-      format: ext,
-      quality: "Original",
-      date: new Date().toISOString().replace("T", " ").slice(0, 19),
-    };
-    set((s) => ({
-      downloadHistory: [entry, ...s.downloadHistory],
-    }));
-    useJobsStore.getState().addFiles([localPath]);
-    useJobsStore.getState().appendLog(`[download] Saved ${url} -> ${localPath} and queued for separation`);
+  downloadMediaUrl: async (url) => {
+    try {
+      useJobsStore.getState().appendLog(`[download] Fetching direct media from ${url}...`);
+      const result = await invokeCommand<DownloadHistoryEntry>("download_media_url", { url });
+      if (result) {
+        set((s) => ({
+          downloadHistory: [result, ...s.downloadHistory.filter((d) => d.id !== result.id)],
+        }));
+        useJobsStore.getState().addFiles([result.path]);
+        useJobsStore.getState().appendLog(`[download] Successfully downloaded ${result.title} -> ${result.path}`);
+      }
+    } catch (err: any) {
+      useJobsStore.getState().appendLog(`[download_err] Failed to download ${url}: ${err?.message || err}`);
+    }
   },
   clearDownloadHistory: () => {
     void invokeCommand("clear_download_history");
@@ -942,6 +923,7 @@ interface SystemState {
   exportDiagnosticBundle: () => void;
   setShowChangelogModal: (v: boolean) => void;
   autoOptimizeForHardware: () => void;
+  initApp: () => Promise<void>;
 }
 
 export const useSystemStore = create<SystemState>((set, get) => ({
@@ -1289,18 +1271,73 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     }));
   },
   exportDiagnosticBundle: () => {
-    void invokeCommand("export_diagnostic_bundle", {
-      outputZipPath: "C:\\Users\\Lam3y\\AppData\\Roaming\\VocalPro\\vocalpro-diagnostics.zip",
-    });
+    void invokeCommand("export_diagnostic_bundle");
     set({
       systemBanner:
-        "Exported diagnostic bundle -> %APPDATA%\\VocalPro\\vocalpro-diagnostics.zip (worker_logs.txt, settings.json, worker_health.json)",
+        "Exported diagnostic bundle -> vocalpro_diagnostics.zip (worker_logs.txt, settings.json, worker_health.json)",
     });
   },
   setShowChangelogModal: (v) => set({ showChangelogModal: v }),
   autoOptimizeForHardware: () => {
     const mode = get().activeProfileMode;
     get().setPerformanceProfileMode(mode);
+  },
+  initApp: async () => {
+    try {
+      const [settings, outputs, sepHistory, dlHistory, hw, health, models] = await Promise.all([
+        invokeCommand<Record<string, any>>("get_settings"),
+        invokeCommand<OutputFolderEntry[]>("list_outputs"),
+        invokeCommand<SeparationHistoryEntry[]>("list_separation_history"),
+        invokeCommand<DownloadHistoryEntry[]>("list_download_history"),
+        invokeCommand<HardwareProfile>("detect_hardware"),
+        invokeCommand<WorkerHealth>("worker_health"),
+        invokeCommand<ModelInfo[]>("list_models"),
+      ]);
+
+      if (settings && Object.keys(settings).length > 0) {
+        if (settings.locale) set({ locale: settings.locale });
+        if (settings.theme) set({ theme: settings.theme });
+        if (settings.ui_scale) set({ uiScale: Number(settings.ui_scale) as any });
+        if (settings.high_contrast !== undefined) set({ highContrast: Boolean(settings.high_contrast) });
+        if (settings.reduced_motion !== undefined) set({ reducedMotion: Boolean(settings.reduced_motion) });
+        if (settings.custom_output_dir) {
+          useJobsStore.setState({ customOutputDir: settings.custom_output_dir });
+        }
+        if (settings.max_concurrent_jobs) {
+          useJobsStore.setState({ parallelWorkers: Number(settings.max_concurrent_jobs) });
+        }
+      }
+
+      if (outputs && Array.isArray(outputs) && outputs.length > 0) {
+        useLibraryStore.setState({
+          outputs,
+          selectedOutputId: outputs[0].id,
+        });
+        useMixerStore.getState().loadFolderStems(outputs[0]);
+      }
+
+      if (sepHistory && Array.isArray(sepHistory)) {
+        useLibraryStore.setState({ separationHistory: sepHistory });
+      }
+
+      if (dlHistory && Array.isArray(dlHistory)) {
+        useLibraryStore.setState({ downloadHistory: dlHistory });
+      }
+
+      if (hw) {
+        set({ hardwareProfile: hw });
+      }
+
+      if (health) {
+        set({ health });
+      }
+
+      if (models && Array.isArray(models) && models.length > 0) {
+        set({ models });
+      }
+    } catch (e) {
+      console.warn("initApp error:", e);
+    }
   },
 }));
 

@@ -1,25 +1,36 @@
 // Typed Tauri v2 IPC bridge (N4, N6).
-// Invokes native Rust commands via window.__TAURI_INTERNALS__.invoke when running
-// inside the Tauri desktop shell, and falls back gracefully in headless browser tests.
+// Uses official @tauri-apps/api/core when running in Tauri v2 desktop shell,
+// and falls back gracefully in browser / development modes.
 
-declare global {
-  interface Window {
-    __TAURI_INTERNALS__?: {
-      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-    };
-  }
-}
+import { convertFileSrc, invoke, isTauri } from "@tauri-apps/api/core";
 
 export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && typeof window.__TAURI_INTERNALS__?.invoke === "function";
+  return isTauri();
+}
+
+export function toAssetUrl(filePath: string): string {
+  if (!filePath) return "";
+  if (isTauri()) {
+    try {
+      return convertFileSrc(filePath);
+    } catch {
+      return filePath;
+    }
+  }
+  return filePath;
 }
 
 export async function invokeCommand<T>(
   cmd: string,
   args: Record<string, unknown> = {}
 ): Promise<T | null> {
-  if (isTauriRuntime() && window.__TAURI_INTERNALS__) {
-    return window.__TAURI_INTERNALS__.invoke<T>(cmd, args);
+  if (isTauri()) {
+    try {
+      return await invoke<T>(cmd, args);
+    } catch (err) {
+      console.error(`[Tauri IPC Error] ${cmd}:`, err);
+      return null;
+    }
   }
   return null;
 }

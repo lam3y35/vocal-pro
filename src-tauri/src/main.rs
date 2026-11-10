@@ -200,6 +200,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 bridge::set_max_concurrent_jobs,
                 bridge::detect_hardware,
                 bridge::auto_optimize_for_hardware,
+                bridge::pick_audio_files,
+                bridge::pick_output_dir,
+                bridge::open_folder,
             ])
             .run(tauri::generate_context!())?;
         return Ok(());

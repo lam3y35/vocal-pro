@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { CheckCircle2, Download, History, Search, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Download, FolderOpen, History, Search, Trash2, XCircle } from "lucide-react";
+import { invokeCommand } from "../ipc";
 import { useLibraryStore } from "../state/appStores";
 
 export const HistoryScreen: React.FC = () => {
@@ -81,62 +82,96 @@ export const HistoryScreen: React.FC = () => {
 
       {tab === "separation" ? (
         <div className="space-y-2.5">
-          {filteredSep.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl bg-[#161822] border border-[#25293A] p-4 flex flex-wrap items-center justify-between gap-3"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  {item.status === "success" ? (
-                    <CheckCircle2 className="w-4 h-4 text-[#00D4AA]" />
-                  ) : (
-                    <XCircle className="w-4 h-4 text-[#FF5E7E]" />
-                  )}
-                  <span className="font-semibold text-xs text-white font-mono">
-                    {item.files.map((f) => f.split(/[\\/]/).pop()).join(", ")}
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-[#6C63FF]/20 text-[#6C63FF] font-mono text-[10px]">
-                    {item.model}
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-[#0F1016] text-slate-400 font-mono text-[10px] uppercase">
-                    {item.device}
-                  </span>
-                </div>
-                {item.output_dir && (
-                  <p className="text-[11px] font-mono text-slate-400">{item.output_dir}</p>
-                )}
-              </div>
-
-              <div className="text-right font-mono text-xs space-y-0.5">
-                <div className="text-[#00D4AA] font-bold">{item.elapsed}</div>
-                <div className="text-[11px] text-slate-500">{item.date}</div>
-              </div>
+          {filteredSep.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#25293A] p-8 text-center text-slate-500 text-xs">
+              No separation history found. Separated songs will be listed here automatically.
             </div>
-          ))}
+          ) : (
+            filteredSep.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-xl bg-[#161822] border border-[#25293A] p-4 flex flex-wrap items-center justify-between gap-3"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {item.status === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-[#00D4AA]" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-[#FF5E7E]" />
+                    )}
+                    <span className="font-semibold text-xs text-white font-mono">
+                      {item.files.map((f) => f.split(/[\\/]/).pop()).join(", ")}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-[#6C63FF]/20 text-[#6C63FF] font-mono text-[10px]">
+                      {item.model}
+                    </span>
+                    <span className="px-2 py-0.5 rounded bg-[#0F1016] text-slate-400 font-mono text-[10px] uppercase">
+                      {item.device}
+                    </span>
+                  </div>
+                  {item.output_dir && (
+                    <div className="flex items-center gap-2">
+                      <p className="text-[11px] font-mono text-slate-400">{item.output_dir}</p>
+                      <button
+                        type="button"
+                        onClick={() => invokeCommand("open_folder", { path: item.output_dir })}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F1016] border border-[#25293A] hover:border-[#00D4AA] text-[#00D4AA] text-[10px] transition shrink-0"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        <span>Open Folder</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-right font-mono text-xs space-y-0.5">
+                  <div className="text-[#00D4AA] font-bold">{item.elapsed}</div>
+                  <div className="text-[11px] text-slate-500">{item.date}</div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       ) : (
         <div className="space-y-2.5">
-          {filteredDl.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl bg-[#161822] border border-[#25293A] p-4 flex flex-wrap items-center justify-between gap-3"
-            >
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Download className="w-4 h-4 text-[#00D4AA]" />
-                  <span className="font-semibold text-xs text-white">{item.title}</span>
-                  <span className="px-2 py-0.5 rounded bg-[#00D4AA]/15 text-[#00D4AA] font-mono text-[10px]">
-                    {item.format} • {item.quality}
-                  </span>
-                </div>
-                <p className="text-[11px] font-mono text-slate-400 truncate max-w-xl">
-                  {item.url} → {item.path}
-                </p>
-              </div>
-              <div className="text-[11px] font-mono text-slate-400">{item.date}</div>
+          {filteredDl.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-[#25293A] p-8 text-center text-slate-500 text-xs">
+              No download history found. Downloaded URLs will appear here.
             </div>
-          ))}
+          ) : (
+            filteredDl.map((item) => (
+              <div
+                key={item.id}
+                className="rounded-xl bg-[#161822] border border-[#25293A] p-4 flex flex-wrap items-center justify-between gap-3"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Download className="w-4 h-4 text-[#00D4AA]" />
+                    <span className="font-semibold text-xs text-white">{item.title}</span>
+                    <span className="px-2 py-0.5 rounded bg-[#00D4AA]/15 text-[#00D4AA] font-mono text-[10px]">
+                      {item.format} • {item.quality}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-mono text-slate-400 truncate max-w-xl">
+                      {item.url} → {item.path}
+                    </p>
+                    {item.path && (
+                      <button
+                        type="button"
+                        onClick={() => invokeCommand("open_folder", { path: item.path })}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0F1016] border border-[#25293A] hover:border-[#00D4AA] text-[#00D4AA] text-[10px] transition shrink-0"
+                      >
+                        <FolderOpen className="w-3 h-3" />
+                        <span>Open</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="text-[11px] font-mono text-slate-400">{item.date}</div>
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>

@@ -349,4 +349,69 @@ pub mod bridge {
             ctx.auto_optimize_for_hardware().map_err(|e| e.to_string())
         }
     }
+
+    #[tauri::command]
+    pub async fn pick_audio_files() -> Vec<String> {
+        tokio::task::spawn_blocking(|| {
+            rfd::FileDialog::new()
+                .add_filter(
+                    "Audio and Video Files",
+                    &[
+                        "mp3", "wav", "flac", "ogg", "m4a", "aac", "opus", "wma", "mp4", "mkv",
+                        "avi", "mov", "webm", "flv", "wmv",
+                    ],
+                )
+                .pick_files()
+                .map(|paths| {
+                    paths
+                        .into_iter()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    #[tauri::command]
+    pub async fn pick_output_dir() -> Option<String> {
+        tokio::task::spawn_blocking(|| {
+            rfd::FileDialog::new()
+                .pick_folder()
+                .map(|p| p.to_string_lossy().to_string())
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    #[tauri::command]
+    pub fn open_folder(path: String) -> Result<(), String> {
+        if path.trim().is_empty() {
+            return Err("Path cannot be empty".to_string());
+        }
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(&path)
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
 }

@@ -37,6 +37,11 @@ export const App: React.FC = () => {
   const isRtl = locale === "ar";
   const isLight = theme === "light";
 
+  // Initialize SQLite state, outputs, history, hardware profile & settings on mount
+  useEffect(() => {
+    void useSystemStore.getState().initApp();
+  }, []);
+
   // Global keyboard shortcuts (Workstream G)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

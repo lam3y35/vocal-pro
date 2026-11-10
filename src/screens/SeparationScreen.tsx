@@ -5,6 +5,7 @@ import {
   Download,
   FileAudio,
   FileVideo,
+  FolderOpen,
   FolderOutput,
   Layers,
   Play,
@@ -17,6 +18,7 @@ import { DeviceOption, ModelName, OutputFormat, OutputMode, VideoOutputMode } fr
 import { CanvasWaveform } from "../components/CanvasWaveform";
 import { JobQueueBar } from "../components/JobQueueBar";
 import { TRANSLATIONS } from "../i18n/translations";
+import { invokeCommand } from "../ipc";
 import { useJobsStore, useLibraryStore, useSystemStore } from "../state/appStores";
 
 export const SeparationScreen: React.FC = () => {
@@ -51,6 +53,36 @@ export const SeparationScreen: React.FC = () => {
   const [downloadUrlInput, setDownloadUrlInput] = useState("");
   const [presetNameInput, setPresetNameInput] = useState("");
   const [previewRatio, setPreviewRatio] = useState(0.22);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const handleBrowse = async () => {
+    try {
+      const picked = await invokeCommand<string[]>("pick_audio_files");
+      if (picked && Array.isArray(picked) && picked.length > 0) {
+        addFiles(picked);
+        return;
+      }
+    } catch (e) {
+      console.warn("pick_audio_files failed, falling back to input:", e);
+    }
+    fileInputRef.current?.click();
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const paths: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const p = (f as any).path || f.name;
+      if (p) paths.push(p);
+    }
+    if (paths.length > 0) {
+      addFiles(paths);
+    }
+    e.target.value = "";
+  };
 
   return (
     <div className="space-y-5 pb-10">
@@ -78,21 +110,41 @@ export const SeparationScreen: React.FC = () => {
               )}
             </div>
 
-            {/* Add Local Path / Drag & Drop Zone */}
+            {/* Hidden Native File Input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              accept="audio/*,video/*,.mp3,.wav,.flac,.m4a,.aac,.ogg,.opus,.wma,.mp4,.mkv,.avi,.mov,.webm,.flv,.wmv"
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+
+            {/* Add Local Path / Browse Buttons */}
             <div className="flex gap-2">
               <input
                 type="text"
                 value={newFilePath}
                 onChange={(e) => setNewFilePath(e.target.value)}
-                placeholder="Paste audio/video path (.mp3, .wav, .flac, .mp4, .mkv)..."
+                placeholder="Paste audio/video path or click Browse..."
                 className="flex-1 bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-[#6C63FF]"
               />
+              <button
+                type="button"
+                onClick={handleBrowse}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F1016] border border-[#25293A] hover:border-[#6C63FF] text-slate-200 text-xs font-semibold transition"
+              >
+                <FolderOpen className="w-3.5 h-3.5 text-[#6C63FF]" />
+                <span>Browse</span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
                   if (newFilePath.trim()) {
                     addFiles([newFilePath.trim()]);
                     setNewFilePath("");
+                  } else {
+                    void handleBrowse();
                   }
                 }}
                 className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#6C63FF] text-white text-xs font-semibold hover:bg-[#6C63FF]/90 transition"
@@ -101,6 +153,44 @@ export const SeparationScreen: React.FC = () => {
                 Add
               </button>
             </div>
+
+            {/* Dropzone when queue is empty */}
+            {selectedFiles.length === 0 && (
+              <div
+                onClick={handleBrowse}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  const files = e.dataTransfer.files;
+                  if (files && files.length > 0) {
+                    const paths: string[] = [];
+                    for (let i = 0; i < files.length; i++) {
+                      const p = (files[i] as any).path || files[i].name;
+                      if (p) paths.push(p);
+                    }
+                    if (paths.length > 0) addFiles(paths);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition ${
+                  isDragging
+                    ? "border-[#00D4AA] bg-[#00D4AA]/10"
+                    : "border-[#25293A] bg-[#0F1016]/60 hover:border-[#6C63FF]"
+                }`}
+              >
+                <FolderOpen className="w-8 h-8 text-[#6C63FF] mx-auto mb-2 opacity-80" />
+                <p className="text-xs font-semibold text-slate-200">
+                  Click to browse or drag &amp; drop audio/video files
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  MP3, WAV, FLAC, M4A, OGG, OPUS, MP4, MKV, AVI
+                </p>
+              </div>
+            )}
 
             {/* Queued Files List with Per-File Progress */}
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
@@ -497,15 +587,25 @@ export const SeparationScreen: React.FC = () => {
 
             {/* Custom Output Directory & Auto-Open Folder */}
             <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[#25293A] text-xs">
-              <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+              <div className="flex items-center gap-2 flex-1 min-w-[280px]">
                 <FolderOutput className="w-4 h-4 text-slate-400 shrink-0" />
                 <input
                   type="text"
                   value={customOutputDir}
                   onChange={(e) => setCustomOutputDir(e.target.value)}
-                  placeholder="Default: <input_folder>/output_vocals/<track_name>"
-                  className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-[11px]"
+                  placeholder="Default: <Music>/VocalPro or <input_folder>/output_vocals"
+                  className="flex-1 bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-200 font-mono text-[11px]"
                 />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const picked = await invokeCommand<string | null>("pick_output_dir");
+                    if (picked) setCustomOutputDir(picked);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#0F1016] border border-[#25293A] hover:border-[#6C63FF] text-slate-200 text-xs font-semibold transition"
+                >
+                  Browse...
+                </button>
               </div>
               <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
                 <input

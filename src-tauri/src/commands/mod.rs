@@ -101,11 +101,22 @@ impl AppContext {
             .unwrap_or("audio")
             .to_string();
 
+        let effective_output_dir = if output_dir.trim().is_empty() {
+            dirs::audio_dir()
+                .map(|p| p.join("VocalPro"))
+                .unwrap_or_else(|| self.app_data_dir.join("output_vocals"))
+                .to_string_lossy()
+                .to_string()
+        } else {
+            output_dir
+        };
+        let _ = std::fs::create_dir_all(&effective_output_dir);
+
         // Persist initial queued record in SQLite so jobs survive restarts (Workstream E)
         let initial_rec = JobRecord {
             job_id: job_id.clone(),
             input_path: input_path.clone(),
-            output_dir: output_dir.clone(),
+            output_dir: effective_output_dir.clone(),
             options: options.clone(),
             status: crate::worker::job_queue::JobStatus::Queued,
             phase: "queued".to_string(),
@@ -129,7 +140,7 @@ impl AppContext {
 
         let ev = self
             .worker
-            .submit_separation(job_id.clone(), input_path.clone(), output_dir, options)
+            .submit_separation(job_id.clone(), input_path.clone(), effective_output_dir, options)
             .await?;
 
         match ev {
