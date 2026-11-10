@@ -1,13 +1,13 @@
 {
   "dsp_stages": {
-    "apply_vocal_gate_ms": 769.71,
-    "spectral_denoise_single_ms": 336.46,
-    "spectral_denoise_multiband_ms": 1176.96,
-    "restore_high_frequencies_ms": 8.73,
-    "normalize_loudness_ms": 5.75,
-    "separate_sfx_hpss_ms": 1139.5,
-    "postprocess_vocals_full_ms": 348.25,
-    "smooth_crossfade_chunks_ms": 6.67
+    "apply_vocal_gate_ms": 762.03,
+    "spectral_denoise_single_ms": 297.2,
+    "spectral_denoise_multiband_ms": 950.05,
+    "restore_high_frequencies_ms": 8.27,
+    "normalize_loudness_ms": 3.31,
+    "separate_sfx_hpss_ms": 1355.64,
+    "postprocess_vocals_full_ms": 367.35,
+    "smooth_crossfade_chunks_ms": 6.61
   },
   "analysis": {
     "track_01_pop_stereo_44k": {
@@ -15,20 +15,20 @@
       "key": "A Minor",
       "duration": 12.0,
       "waveform_len": 8000,
-      "legacy_elapsed_ms": 1865.55
+      "legacy_elapsed_ms": 9032.09
     }
   },
   "midi": {
     "track_01_clean_vocal_ref": {
       "note_count": 8,
-      "legacy_elapsed_ms": 2613.16
+      "legacy_elapsed_ms": 4600.31
     }
   },
   "spikes": {
     "demucs_callback_and_cancel": {
       "max_abs_diff": 0.0,
       "progress_callbacks_fired": 6,
-      "cancel_latency_ms": 0.063,
+      "cancel_latency_ms": 0.056,
       "sample_callback_payload": {
         "model_idx_in_bag": 0,
         "shift_idx": 0,
