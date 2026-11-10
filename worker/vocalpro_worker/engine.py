@@ -156,9 +156,15 @@ def decode_audio_stereo_44k(input_path: Path, ffmpeg_bin: str = "ffmpeg") -> tup
             [
                 ffmpeg_bin,
                 "-y",
+                "-avoid_negative_ts",
+                "make_zero",
+                "-fflags",
+                "+genpts",
                 "-i",
                 str(input_path),
                 "-vn",
+                "-af",
+                "aresample=async=1:first_pts=0",
                 "-acodec",
                 "pcm_f32le",
                 "-ar",
@@ -301,19 +307,41 @@ def write_encoded_stem(
 
 
 def normalize_duration_array(audio_ch: np.ndarray, target_samples: int, sr: int = 44100) -> np.ndarray:
-    """Trim or zero-pad a (channels, samples) array in memory to match target_samples within 50ms."""
+    """Exact sample-accurate normalization to target_samples with smooth boundary fading."""
     curr = audio_ch.shape[1]
-    diff = curr - target_samples
-    if abs(diff) <= int(0.05 * sr):
+    if curr == target_samples:
         return audio_ch
-    if diff > 0:
+    if curr > target_samples:
         trimmed = audio_ch[:, :target_samples].copy()
-        fade_len = min(int(0.01 * sr), target_samples)
+        fade_len = min(int(0.015 * sr), target_samples)
         if fade_len > 0:
-            trimmed[:, -fade_len:] *= np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+            ramp = 0.5 * (1.0 + np.cos(np.pi * np.linspace(0.0, 1.0, fade_len, dtype=np.float32)))
+            trimmed[:, -fade_len:] *= ramp
         return trimmed
     pad_width = target_samples - curr
     return np.pad(audio_ch, ((0, 0), (0, pad_width)), mode="constant")
+
+
+def apply_boundary_smoothing(
+    audio_ch: np.ndarray,
+    sr: int = 44100,
+    fade_in_ms: float = 15.0,
+    fade_out_ms: float = 25.0,
+) -> np.ndarray:
+    """Apply micro-cosine ramps at the extreme boundaries (first and last milliseconds) to eliminate digital clicks and abrupt cuts."""
+    if audio_ch.shape[1] < 100:
+        return audio_ch
+    out = audio_ch.copy()
+    in_samples = min(int(fade_in_ms * sr / 1000.0), out.shape[1] // 4)
+    if in_samples > 2:
+        ramp_in = 0.5 * (1.0 - np.cos(np.pi * np.linspace(0.0, 1.0, in_samples, dtype=np.float32)))
+        out[:, :in_samples] *= ramp_in
+
+    out_samples = min(int(fade_out_ms * sr / 1000.0), out.shape[1] // 4)
+    if out_samples > 2:
+        ramp_out = 0.5 * (1.0 + np.cos(np.pi * np.linspace(0.0, 1.0, out_samples, dtype=np.float32)))
+        out[:, -out_samples:] *= ramp_out
+    return out
 
 
 def generate_comparison_samples_in_memory(
@@ -634,11 +662,12 @@ def run_separation_job(
     overlap_sec = float(opts.get("overlap_seconds", 5.0))
     cooldown_sec = float(opts.get("cooldown_between_chunks_seconds", 0.0))
 
-    is_movie = input_path.suffix.lower() in VIDEO_EXTENSIONS
+    is_movie = input_path.suffix.lower() in VIDEO_EXTENSIONS or str(opts.get("video_output_mode", "")).lower() != "audio_only"
     if orig_duration_s > threshold_min * 60.0 or (is_movie and orig_duration_s > 180.0):
         # Large-file / movie chunked path (SEP-05)
         chunk_samples = int(chunk_min * 60.0 * sr)
-        overlap_samples = int(overlap_sec * sr)
+        overlap_sec_actual = max(15.0, overlap_sec) if is_movie else overlap_sec
+        overlap_samples = int(overlap_sec_actual * sr)
         hop_samples = max(1, chunk_samples - overlap_samples)
         chunk_starts = list(range(0, target_samples, hop_samples))
         num_chunks = len(chunk_starts)
@@ -667,7 +696,7 @@ def run_separation_job(
 
         raw_stems: dict[str, np.ndarray] = {}
         for k, c_list in stem_chunks.items():
-            merged_2d = dsp.smooth_crossfade_chunks(c_list, overlap_samples=overlap_samples, sr=sr)
+            merged_2d = dsp.smooth_crossfade_chunks(c_list, overlap_samples=overlap_samples, sr=sr, chunk_starts=chunk_starts)
             raw_stems[k] = merged_2d.T[:, :target_samples].astype(np.float32)
         del stem_chunks
         gc.collect()
@@ -732,23 +761,38 @@ def run_separation_job(
     split_hz_raw = opts.get("denoise_band_split_hz") or [250.0, 6000.0]
     split_tuple = (float(split_hz_raw[0]), float(split_hz_raw[1]))
 
+    # For cinema / movie processing, prevent silence trimming and aggressive muting:
+    # 1. Trimming silence cuts off initial pause/music, destroying AV sync for the entire movie.
+    # 2. Hard gating (-60dB) causes whisper dialogue to drop out completely to silence.
+    #    Movies require gentle presence floor (-28 to -32 dB) and whisper-safe threshold (-62 dB).
+    should_trim = bool(opts.get("trim_silence", False))
+    req_gate_floor = float(opts.get("gate_floor_db", -60.0))
+    req_gate_thresh = float(opts.get("gate_threshold_db", -55.0))
+    req_min_vocal_dur = float(opts.get("min_vocal_duration", 0.08))
+
+    if is_movie:
+        should_trim = False
+        req_gate_floor = max(req_gate_floor, -32.0)
+        req_gate_thresh = min(req_gate_thresh, -62.0)
+        req_min_vocal_dur = min(req_min_vocal_dur, 0.03)
+
     vocals_clean = dsp.postprocess_vocals(
         vocals_raw,
         sr=sr,
         enable_gate=bool(opts.get("enable_vocal_gate", True)),
-        gate_threshold_db=float(opts.get("gate_threshold_db", -55.0)),
-        gate_floor_db=float(opts.get("gate_floor_db", -60.0)),
+        gate_threshold_db=req_gate_thresh,
+        gate_floor_db=req_gate_floor,
         enable_denoise=bool(opts.get("enable_spectral_denoise", True)),
         denoise_prop=float(opts.get("denoise_strength", 0.55)),
-        min_vocal_duration=float(opts.get("min_vocal_duration", 0.08)),
-        trim=bool(opts.get("trim_silence", True)),
+        min_vocal_duration=req_min_vocal_dur,
+        trim=should_trim,
         enable_multiband=bool(opts.get("enable_multiband_denoise", False)),
         denoise_band_split_hz=split_tuple,
         denoise_strength_low=float(opts.get("denoise_strength_low", 0.35)),
         denoise_strength_mid=float(opts.get("denoise_strength_mid", 0.10)),
         denoise_strength_high=float(opts.get("denoise_strength_high", 0.25)),
         enable_noise_profile=bool(opts.get("enable_noise_profile", False)),
-        adaptive_gate=bool(opts.get("adaptive_gate_floor", False)),
+        adaptive_gate=bool(opts.get("adaptive_gate_floor", True if is_movie else False)),
         enable_hf_restore=bool(opts.get("enable_hf_restore", True)),
         hf_boost_db=float(opts.get("hf_boost_db", 3.0)),
         enable_loudness_normalize=bool(opts.get("enable_loudness_normalize", True)),
@@ -765,6 +809,9 @@ def run_separation_job(
         vocals_clean = combined.astype(np.float32)
 
     vocals_clean = normalize_duration_array(vocals_clean, target_samples, sr=sr)
+    vocals_clean = apply_boundary_smoothing(vocals_clean, sr=sr, fade_in_ms=15.0, fade_out_ms=25.0)
+    accompaniment = apply_boundary_smoothing(accompaniment, sr=sr, fade_in_ms=15.0, fade_out_ms=25.0)
+    bg_harmonic = apply_boundary_smoothing(bg_harmonic, sr=sr, fade_in_ms=15.0, fade_out_ms=25.0)
 
     # Phase 5: Write output stems once (fixes P-05, P-07, P-17)
     send_progress("writing", 95.0, message="Writing output stems...")
@@ -879,6 +926,12 @@ def run_separation_job(
             elif "karaoke_path" in locals() and karaoke_path.exists():
                 mux_audio_path = karaoke_path
 
+        # Sample-accurate cinema video remuxing:
+        # -af "aresample=async=1:first_pts=0": Locks audio stream 1:a:0 exactly to frame 0 PTS (removes timing drift/stutter)
+        # -ar 48000: Broadcast standard audio sampling rate
+        # -avoid_negative_ts make_zero -fflags +genpts: Resets container timestamps to exact 0.0s
+        # -map 0:s? -c:s copy: Preserves movie subtitles whenever possible
+        # Removed -shortest so ending movie dialogue/credits are not truncated prematurely.
         cmd = [
             ffmpeg_bin,
             "-y",
@@ -890,17 +943,66 @@ def run_separation_job(
             "0:v:0",
             "-map",
             "1:a:0",
+            "-map",
+            "0:s?",
             "-c:v",
             "copy",
             "-c:a",
             "aac",
             "-b:a",
             audio_bitrate,
+            "-ar",
+            "48000",
+            "-af",
+            "aresample=async=1:first_pts=0",
+            "-c:s",
+            "copy",
+            "-map_chapters",
+            "0",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-fflags",
+            "+genpts",
         ]
         if clean_ext == ".mp4" and bool(opts.get("ffmpeg_faststart", True)):
             cmd.extend(["-movflags", "+faststart"])
-        cmd.extend(["-shortest", str(clean_video_path)])
+        cmd.append(str(clean_video_path))
+
         proc = subprocess.run(cmd, capture_output=True, text=True)
+        # If subtitle copy failed (e.g. incompatible subtitle codec with target container), fallback without subtitle copy
+        if proc.returncode != 0:
+            cmd_fallback = [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                str(input_path),
+                "-i",
+                str(mux_audio_path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                audio_bitrate,
+                "-ar",
+                "48000",
+                "-af",
+                "aresample=async=1:first_pts=0",
+                "-map_chapters",
+                "0",
+                "-avoid_negative_ts",
+                "make_zero",
+                "-fflags",
+                "+genpts",
+            ]
+            if clean_ext == ".mp4" and bool(opts.get("ffmpeg_faststart", True)):
+                cmd_fallback.extend(["-movflags", "+faststart"])
+            cmd_fallback.append(str(clean_video_path))
+            proc = subprocess.run(cmd_fallback, capture_output=True, text=True)
         if proc.returncode == 0 and clean_video_path.exists():
             written_stems.append(
                 {

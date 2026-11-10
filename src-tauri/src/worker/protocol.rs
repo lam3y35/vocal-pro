@@ -37,7 +37,7 @@ pub struct JobOptions {
     pub save_background_track: bool,
     #[serde(default)]
     pub generate_comparison_samples: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub trim_silence: bool,
     #[serde(default = "default_true")]
     pub enable_vocal_gate: bool,
@@ -187,7 +187,7 @@ impl Default for JobOptions {
             include_sfx: true,
             save_background_track: false,
             generate_comparison_samples: false,
-            trim_silence: true,
+            trim_silence: false,
             enable_vocal_gate: true,
             enable_spectral_denoise: true,
             gate_threshold_db: -55.0,
