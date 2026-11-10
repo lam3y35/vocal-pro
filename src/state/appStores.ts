@@ -764,6 +764,23 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   downloadHistory: [],
   presets: [
     {
+      name: "Cinema Dialogue Remux (Movie Only)",
+      options: {
+        ...DEFAULT_JOB_OPTIONS,
+        model: "htdemucs",
+        shifts: 1,
+        overlap: 0.25,
+        segment: 7.8,
+        output_format: "mp3",
+        video_output_mode: "video_only",
+        audio_bitrate: "320k",
+        enable_vocal_gate: true,
+        enable_spectral_denoise: true,
+        delete_input_file: false,
+        fp16_inference: true,
+      },
+    },
+    {
       name: "Ultra Clean Broadcast Vocal",
       options: {
         ...DEFAULT_JOB_OPTIONS,
@@ -942,7 +959,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   conflictPolicy: "append_number",
   preserveFolderStructure: true,
   maxCacheSizeGb: 10.0,
-  activeProfileMode: "Auto",
+  activeProfileMode: "Max Quality",
   calibrating: false,
   lastCalibrationResult: {
     elapsed_ms: 82.4,
@@ -990,10 +1007,10 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     fp16_supported: true,
     device_tier: "high_gpu",
     tier_label: "High-Performance GPU (6-11GB VRAM)",
-    active_profile_mode: "Auto",
+    active_profile_mode: "Max Quality",
     profile_changes_label:
-      "Auto profile sets: device=CUDA, workers=2, threads/job=8, segment=7.8s, shifts=1, overlap=0.25, fp16=False",
-    quality_impact_note: "Quality: Reference FP32 (0.00 dB SDR delta vs legacy)",
+      "Max Quality profile sets: device=CUDA, workers=2, threads/job=8, segment=7.8s, shifts=1, overlap=0.25, fp16=True",
+    quality_impact_note: "Quality: Maximum Reference FP32/FP16 (Highest Vocal & Dialogue Quality)",
     hardware_fingerprint: "9f41c8a20b17e3d4",
     recommended_device: "cuda",
     recommended_max_concurrent_jobs: 2,
@@ -1002,7 +1019,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     recommended_overlap: 0.25,
     recommended_shifts: 1,
     recommended_preset: "high",
-    recommended_fp16: false,
+    recommended_fp16: true,
     recommended_parallel_dsp: true,
     recommended_safe_mode: false,
   },

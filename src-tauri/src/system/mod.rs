@@ -266,7 +266,7 @@ pub fn classify_hardware_spec(spec: HardwareSpecInput) -> HardwareProfile {
         "eco" => "eco",
         "balanced" => "balanced",
         "max_quality" => "max_quality",
-        _ => "auto",
+        _ => "max_quality",
     };
 
     let effective_mode = if req_mode == "auto" {

@@ -220,6 +220,36 @@ def write_encoded_stem(
         if fmt == "ogg":
             sf.write(str(target_path), audio_2d, sr, format="OGG", subtype="VORBIS")
             return
+        if fmt in ("m4a", "aac"):
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                tmp_wav = Path(tmp.name)
+            try:
+                sf.write(str(tmp_wav), audio_2d, sr, subtype="PCM_16")
+                proc = subprocess.run(
+                    [
+                        ffmpeg_bin,
+                        "-y",
+                        "-i",
+                        str(tmp_wav),
+                        "-codec:a",
+                        "aac",
+                        "-b:a",
+                        audio_bitrate or "320k",
+                        str(target_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.returncode != 0:
+                    raise WorkerEngineError(
+                        "INTERNAL",
+                        f"AAC encoding failed for {target_path.name}",
+                        detail=proc.stderr[-400:] if proc.stderr else None,
+                    )
+            finally:
+                tmp_wav.unlink(missing_ok=True)
+            return
+
         if fmt == "mp3":
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 tmp_wav = Path(tmp.name)
@@ -604,8 +634,9 @@ def run_separation_job(
     overlap_sec = float(opts.get("overlap_seconds", 5.0))
     cooldown_sec = float(opts.get("cooldown_between_chunks_seconds", 0.0))
 
-    if orig_duration_s > threshold_min * 60.0:
-        # Large-file chunked path (SEP-05)
+    is_movie = input_path.suffix.lower() in VIDEO_EXTENSIONS
+    if orig_duration_s > threshold_min * 60.0 or (is_movie and orig_duration_s > 180.0):
+        # Large-file / movie chunked path (SEP-05)
         chunk_samples = int(chunk_min * 60.0 * sr)
         overlap_samples = int(overlap_sec * sr)
         hop_samples = max(1, chunk_samples - overlap_samples)
@@ -624,7 +655,8 @@ def run_separation_job(
             ) -> None:
                 chunk_frac = (_c_idx + (s_i / max(1, s_t))) / max(1, num_chunks)
                 pct = 10.0 + 68.0 * chunk_frac
-                send_progress("inference", pct, s_i, s_t, m_i, m_t, eta, f"Chunk {_c_idx + 1}/{num_chunks}")
+                lbl = f"Movie Chunk {_c_idx + 1}/{num_chunks}" if is_movie else f"Chunk {_c_idx + 1}/{num_chunks}"
+                send_progress("inference", pct, s_i, s_t, m_i, m_t, eta, lbl)
 
             c_stems = _infer_with_oom_recovery(primary_model, sub_mix, _chunk_prog)
             for k, arr in c_stems.items():
@@ -768,8 +800,8 @@ def run_separation_job(
         k_peak = float(np.max(np.abs(karaoke_arr)))
         if k_peak > 1.0:
             karaoke_arr = karaoke_arr / k_peak * 0.99
-        karaoke_path = output_dir / f"{base_name}_karaoke.wav"
-        write_encoded_stem(karaoke_arr, sr, karaoke_path, "wav", audio_bitrate, ffmpeg_bin, wav_bit_depth)
+        karaoke_path = output_dir / f"{base_name}_karaoke.{output_format}"
+        write_encoded_stem(karaoke_arr, sr, karaoke_path, output_format, audio_bitrate, ffmpeg_bin, wav_bit_depth)
         written_stems.append(
             {
                 "name": "karaoke",
@@ -790,8 +822,8 @@ def run_separation_job(
         bg_peak = float(np.max(np.abs(bg_arr)))
         if bg_peak > 1.0:
             bg_arr = bg_arr / bg_peak * 0.99
-        bg_path = output_dir / f"{base_name}_background.wav"
-        write_encoded_stem(bg_arr, sr, bg_path, "wav", audio_bitrate, ffmpeg_bin, wav_bit_depth)
+        bg_path = output_dir / f"{base_name}_background.{output_format}"
+        write_encoded_stem(bg_arr, sr, bg_path, output_format, audio_bitrate, ffmpeg_bin, wav_bit_depth)
         written_stems.append(
             {
                 "name": "background",
@@ -829,21 +861,31 @@ def run_separation_job(
         )
 
     # 6. Video remuxing (IN-02: when input is a video file and video_output_mode != "audio_only")
-    video_output_mode = str(opts.get("video_output_mode") or "both").lower()
+    video_output_mode = str(opts.get("video_output_mode") or "video_only").lower()
     if (
         input_path.suffix.lower() in VIDEO_EXTENSIONS
         and bool(opts.get("output_video", True))
         and video_output_mode in ("both", "video_only")
     ):
-        send_progress("muxing_video", 98.0, message="Muxing clean audio into video container...")
-        clean_video_path = output_dir / f"{base_name}_clean.mp4"
+        send_progress("muxing_video", 98.0, message="Muxing clean dialogue/audio into video container...")
+        orig_ext = input_path.suffix.lower()
+        clean_ext = orig_ext if orig_ext in (".mp4", ".mkv", ".mov", ".webm") else ".mp4"
+        clean_video_path = output_dir / f"{base_name}_clean{clean_ext}"
+
+        mux_audio_path = vocals_path
+        if output_mode in ("background", "karaoke"):
+            if "bg_path" in locals() and bg_path.exists():
+                mux_audio_path = bg_path
+            elif "karaoke_path" in locals() and karaoke_path.exists():
+                mux_audio_path = karaoke_path
+
         cmd = [
             ffmpeg_bin,
             "-y",
             "-i",
             str(input_path),
             "-i",
-            str(vocals_path),
+            str(mux_audio_path),
             "-map",
             "0:v:0",
             "-map",
@@ -855,7 +897,7 @@ def run_separation_job(
             "-b:a",
             audio_bitrate,
         ]
-        if bool(opts.get("ffmpeg_faststart", True)):
+        if clean_ext == ".mp4" and bool(opts.get("ffmpeg_faststart", True)):
             cmd.extend(["-movflags", "+faststart"])
         cmd.extend(["-shortest", str(clean_video_path)])
         proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -871,7 +913,22 @@ def run_separation_job(
             )
             if video_output_mode == "video_only":
                 vocals_path.unlink(missing_ok=True)
-                written_stems = [s for s in written_stems if s["name"] != "vocals"]
+                if "karaoke_path" in locals():
+                    karaoke_path.unlink(missing_ok=True)
+                if "bg_path" in locals():
+                    bg_path.unlink(missing_ok=True)
+                for s in written_stems:
+                    if s["name"] != "video_clean":
+                        Path(s["path"]).unlink(missing_ok=True)
+                written_stems = [s for s in written_stems if s["name"] == "video_clean"]
+
+    # Optional: Delete original input file after successful export to save disk space
+    if bool(opts.get("delete_input_file", False)):
+        try:
+            if input_path.exists():
+                input_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
     send_progress("writing", 100.0, 1, 1, 1, 1, 0.0, "Separation complete")
     elapsed_s = round(time.perf_counter() - t_job_start, 3)

@@ -25,6 +25,8 @@ pub struct JobOptions {
     pub output_video: bool,
     #[serde(default = "default_video_mode")]
     pub video_output_mode: String,
+    #[serde(default)]
+    pub delete_input_file: bool,
     #[serde(default = "default_true")]
     pub ffmpeg_faststart: bool,
     #[serde(default)]
@@ -123,7 +125,7 @@ fn default_overlap_seconds() -> f64 {
     5.0
 }
 fn default_video_mode() -> String {
-    "both".to_string()
+    "video_only".to_string()
 }
 fn default_gate_threshold() -> f64 {
     -55.0
@@ -167,18 +169,19 @@ impl Default for JobOptions {
         Self {
             model: "htdemucs".to_string(),
             output_mode: "vocals".to_string(),
-            output_format: "wav".to_string(),
+            output_format: "mp3".to_string(),
             audio_bitrate: "320k".to_string(),
             output_all_stems: false,
             device: "auto".to_string(),
             shifts: 1,
             overlap: 0.25,
-            segment: Some(6.0),
+            segment: Some(7.8),
             large_file_threshold_minutes: 15.0,
-            chunk_duration_minutes: 12.0,
+            chunk_duration_minutes: 10.0,
             overlap_seconds: 5.0,
             output_video: true,
-            video_output_mode: "both".to_string(),
+            video_output_mode: "video_only".to_string(),
+            delete_input_file: false,
             ffmpeg_faststart: true,
             ffmpeg_path: String::new(),
             include_sfx: true,
@@ -214,8 +217,8 @@ impl Default for JobOptions {
             hf_boost_db: 3.0,
             enable_loudness_normalize: true,
             auto_oom_fallback: true,
-            fp16_inference: false,
-            hardware_profile_mode: "auto".to_string(),
+            fp16_inference: true,
+            hardware_profile_mode: "max_quality".to_string(),
         }
     }
 }

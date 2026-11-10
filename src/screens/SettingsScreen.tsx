@@ -716,7 +716,17 @@ export const SettingsScreen: React.FC = () => {
                   onChange={(e) => setOptions({ fp16_inference: e.target.checked })}
                   className="accent-[#FFB800]"
                 />
-                <span>CUDA FP16 Half-Precision Inference (Opt-In Only)</span>
+                <span>CUDA FP16 Half-Precision Acceleration</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={Boolean(options.delete_input_file)}
+                  onChange={(e) => setOptions({ delete_input_file: e.target.checked })}
+                  className="accent-[#FF5E7E]"
+                />
+                <span className="text-[#FF5E7E] font-medium">Delete Original Input File After Successful Export (Frees Disk Space)</span>
               </label>
             </div>
           </div>

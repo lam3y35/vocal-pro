@@ -2,9 +2,11 @@ import React, { useState } from "react";
 import {
   AudioWaveform,
   BookmarkPlus,
+  CheckCircle2,
   Download,
   FileAudio,
   FileVideo,
+  Film,
   FolderOpen,
   FolderOutput,
   Layers,
@@ -184,10 +186,10 @@ export const SeparationScreen: React.FC = () => {
               >
                 <FolderOpen className="w-8 h-8 text-[#6C63FF] mx-auto mb-2 opacity-80" />
                 <p className="text-xs font-semibold text-slate-200">
-                  Click to browse or drag &amp; drop audio/video files
+                  Click to browse or drag &amp; drop Movie or Audio files
                 </p>
                 <p className="text-[11px] text-slate-500 mt-1">
-                  MP3, WAV, FLAC, M4A, OGG, OPUS, MP4, MKV, AVI
+                  MP4, MKV, AVI, MOV, WEBM (Cinema Movies) • MP3, AAC, FLAC, WAV
                 </p>
               </div>
             )}
@@ -376,63 +378,149 @@ export const SeparationScreen: React.FC = () => {
 
           {/* 3. Comprehensive Job Options & DSP Post-Processing Card (OptionsCard parity) */}
           <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-4">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-              Output Mode, Format, Inference &amp; Vocal Post-Processing
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                <Film className="w-4 h-4 text-[#00D4AA]" />
+                <span>Export Target &amp; Movie Mode</span>
+              </h2>
+              <span className="text-[11px] font-mono text-[#00D4AA]">
+                Zero Quality Loss • 1:1 Timeline Sync
+              </span>
+            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+            {/* 1. Export Target: Movie Video Only vs Audio Stems Only vs Both */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setOptions({ video_output_mode: "video_only", output_video: true })}
+                className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                  options.video_output_mode === "video_only"
+                    ? "bg-[#00D4AA]/15 border-[#00D4AA] text-white"
+                    : "bg-[#0F1016] border-[#25293A] text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-bold text-xs flex items-center gap-1.5 text-white">
+                    <FileVideo className="w-4 h-4 text-[#00D4AA]" />
+                    <span>Clean Movie Only</span>
+                  </span>
+                  {options.video_output_mode === "video_only" && (
+                    <span className="w-2 h-2 rounded-full bg-[#00D4AA]" />
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+                  Muxes clean audio into movie container. Purges temp stems to save disk storage.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOptions({ video_output_mode: "audio_only", output_video: false })}
+                className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                  options.video_output_mode === "audio_only"
+                    ? "bg-[#6C63FF]/20 border-[#6C63FF] text-white"
+                    : "bg-[#0F1016] border-[#25293A] text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-bold text-xs flex items-center gap-1.5 text-white">
+                    <FileAudio className="w-4 h-4 text-[#6C63FF]" />
+                    <span>Audio Stems Only</span>
+                  </span>
+                  {options.video_output_mode === "audio_only" && (
+                    <span className="w-2 h-2 rounded-full bg-[#6C63FF]" />
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+                  Extracts dialogue, music, and SFX as compact audio files (~5MB). No video output.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOptions({ video_output_mode: "both", output_video: true })}
+                className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                  options.video_output_mode === "both"
+                    ? "bg-[#FFB800]/15 border-[#FFB800] text-white"
+                    : "bg-[#0F1016] border-[#25293A] text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-bold text-xs flex items-center gap-1.5 text-white">
+                    <Layers className="w-4 h-4 text-[#FFB800]" />
+                    <span>Both Movie + Audio</span>
+                  </span>
+                  {options.video_output_mode === "both" && (
+                    <span className="w-2 h-2 rounded-full bg-[#FFB800]" />
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-snug">
+                  Produces clean remuxed movie video alongside all separated audio stems.
+                </p>
+              </button>
+            </div>
+
+            {/* 2. Option to Delete Original Input File */}
+            <label className="flex items-center justify-between p-3 rounded-xl bg-[#0F1016] border border-[#25293A] hover:border-[#FF5E7E]/50 transition cursor-pointer">
+              <div className="flex items-center gap-3">
+                <Trash2 className="w-4 h-4 text-[#FF5E7E] shrink-0" />
+                <div>
+                  <span className="text-xs font-semibold text-slate-200">
+                    Delete original input file after successful export
+                  </span>
+                  <p className="text-[11px] text-slate-400">
+                    Safely removes original movie/audio file once output is written and verified, freeing disk space immediately.
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(options.delete_input_file)}
+                onChange={(e) => setOptions({ delete_input_file: e.target.checked })}
+                className="w-4 h-4 accent-[#FF5E7E] cursor-pointer"
+              />
+            </label>
+
+            {/* 3. Output Mode, Audio Format (Storage Saver), and Device */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <label className="space-y-1">
-                <span className="text-slate-400">Output Mode</span>
+                <span className="text-slate-400">Audio / Dialogue Target</span>
                 <select
                   value={options.output_mode}
                   onChange={(e) => setOptions({ output_mode: e.target.value as OutputMode })}
                   className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-100"
                 >
-                  <option value="vocals">Vocals Primary</option>
-                  <option value="background">Background / Music</option>
+                  <option value="vocals">Clean Dialogue / Vocals</option>
+                  <option value="background">Background Score &amp; SFX (No Dialogue)</option>
                   <option value="karaoke">Karaoke Instrumental</option>
-                  <option value="all_stems">All Stems (4/6 Stems)</option>
+                  <option value="all_stems">All Stems (Dialogue, Music, Drums, Bass)</option>
                 </select>
               </label>
 
               <label className="space-y-1">
-                <span className="text-slate-400">Audio Format</span>
+                <span className="text-slate-400">Audio Format &amp; Storage Footprint</span>
                 <select
                   value={options.output_format}
                   onChange={(e) => setOptions({ output_format: e.target.value as OutputFormat })}
-                  className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-100"
+                  className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-100 font-mono text-xs"
                 >
-                  <option value="wav">WAV (16-bit PCM)</option>
-                  <option value="flac">FLAC (Lossless)</option>
-                  <option value="mp3">MP3 (LAME)</option>
+                  <option value="mp3">MP3 320k (Studio Quality ~5-7 MB)</option>
+                  <option value="aac">AAC 320k (Cinema Master ~5-7 MB)</option>
+                  <option value="flac">FLAC (24-bit Lossless ~18 MB)</option>
+                  <option value="wav">WAV (16-bit Uncompressed ~35 MB)</option>
                 </select>
               </label>
 
               <label className="space-y-1">
-                <span className="text-slate-400">Device</span>
+                <span className="text-slate-400">Inference Device</span>
                 <select
                   value={options.device}
                   onChange={(e) => setOptions({ device: e.target.value as DeviceOption })}
                   className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-100"
                 >
-                  <option value="auto">Auto (CUDA / CPU)</option>
-                  <option value="cuda">NVIDIA CUDA GPU</option>
-                  <option value="cpu">CPU Only</option>
-                </select>
-              </label>
-
-              <label className="space-y-1">
-                <span className="text-slate-400">Video Remux Mode</span>
-                <select
-                  value={options.video_output_mode}
-                  onChange={(e) =>
-                    setOptions({ video_output_mode: e.target.value as VideoOutputMode })
-                  }
-                  className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-2.5 py-1.5 text-slate-100"
-                >
-                  <option value="both">Both (Clean MP4 + Audio)</option>
-                  <option value="video_only">Clean Video Only (_clean.mp4)</option>
-                  <option value="audio_only">Audio Stems Only</option>
+                  <option value="auto">Auto (Highest Performance GPU)</option>
+                  <option value="cuda">NVIDIA CUDA GPU (Fastest)</option>
+                  <option value="cpu">CPU Multi-Threaded</option>
                 </select>
               </label>
             </div>

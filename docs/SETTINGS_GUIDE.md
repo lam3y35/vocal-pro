@@ -319,3 +319,63 @@ Next to the worker health display in Settings is the **Export Diagnostic Log Bun
   The bundle contains **zero audio files, zero speech data, and zero personal filenames**.
 * **When to use it:**  
   If you ever encounter an issue or want to report a bug to the development team, export this bundle and share it. It gives developers all the diagnostic information needed to troubleshoot the issue instantly.
+
+---
+
+## 8. Movie & Cinema Audio Architecture (Long-Form Media & Storage Management)
+
+### 🎬 Cinema Movie Separation Workflow
+VocalPro v3 includes an architecture built specifically for full-length feature films and cinema media (1 to 3+ hours):
+1. **Audio Extraction Without Video Degradation:**
+   The movie audio stream is extracted directly using high-speed decoding into floating-point audio. The video stream remains completely untouched.
+2. **Sequential Chunked Processing (Zero OOM Memory Spikes):**
+   A 2-hour movie contains over 300 million audio samples. Attempting to pass 2 hours into a neural network in a single tensor would immediately crash with an Out-of-Memory (OOM) error.  
+   VocalPro splits the movie audio into sequential chunks (e.g. 10-minute segments) with 5-second overlapping margins (`overlap_seconds=5.0`), processes each chunk through Demucs, and applies smooth equal-power crossfading (`smooth_crossfade_chunks`).
+3. **Exact 1:1 Timeline & Period Synchronization:**
+   The stitched audio is normalized to the exact frame sample count (`target_samples = mix_ch.shape[1]`), ensuring **sample-accurate lip-sync** across the entire 2-hour duration with zero audio-video drift.
+4. **Instant Video Remuxing via Stream-Copy:**
+   When remuxing (`-c:v copy -c:a aac -b:a 320k`), the original video stream is bit-copied with zero re-encoding time and **zero visual quality loss**.
+
+---
+
+### 💾 Why Did a 5 MB Song Become 30 MB? (Storage Optimization Guide)
+Many users notice that an input 5 MB MP3 file becomes a 30 MB to 45 MB file when processed. Here is the technical explanation and how VocalPro solves it:
+- **Uncompressed PCM WAV vs Compressed Audio:**
+  Standard CD-quality WAV is uncompressed 16-bit PCM at 1,411 kbps. A 3-minute song in WAV is mathematically ~32 MB! If 24-bit PCM or 32-bit Float is used, it reaches ~48 MB per stem. If 4 stems are saved, that single 5 MB song becomes **130 MB** on your SSD!
+- **How to Keep Storage Small Without Losing Quality:**
+  - Select **MP3 320 kbps (Studio Quality)** or **AAC / M4A 320 kbps (Cinema Master)** in the Audio Format dropdown.
+  - At 320 kbps CBR, human hearing cannot distinguish the audio from raw 24-bit WAV (perceptual studio transparency).
+  - Your 5 MB file stays compact (~5 MB to 7 MB), saving over 85% of disk storage!
+  - For movies, when exporting **Clean Movie Video Only (`video_only`)**, the output movie file is virtually identical in size to the original movie, and all intermediate WAV chunks and audio stems are purged from disk immediately.
+
+---
+
+### 🎛️ Export Target: Video vs. Audio Only
+
+VocalPro provides 3 distinct export modes:
+1. **🎬 Clean Movie Only (`video_only`):**  
+   Muxes the isolated clean dialogue (or background music) directly back into your movie container (`.mp4`, `.mkv`, etc.). Automatically unlinks and deletes all temporary audio stems from your hard drive, leaving only your finished movie file.
+2. **🎵 Audio Stems Only (`audio_only`):**  
+   Extracts and separates the movie soundtrack into isolated Dialogue, Score/Music, and SFX stems as compact audio files (MP3/AAC/FLAC). Skips video creation completely to save processing time and disk space.
+3. **🎬+🎵 Both Movie + Audio Stems (`both`):**  
+   Creates both the remuxed clean movie file and keeps the separate audio stem files.
+
+---
+
+### 🗑️ Option: Delete Original Input File After Successful Export
+Under the Export Target options, you will find:
+> **"Delete original input file after successful export"** (`delete_input_file`)
+
+- When enabled, VocalPro verifies that the clean movie/audio file has been written to disk successfully with valid size and frames.
+- Once verified, it automatically removes the original bulky input file from disk.
+- Ideal for batch processing large 4K movies (e.g. 5 GB to 20 GB files) where keeping both the original movie and the remuxed movie would consume excessive storage.
+
+---
+
+### ⚡ Default Maximum Performance Profile
+By default, VocalPro v3 starts in **Maximum Performance Mode ("Max Quality")**:
+- **Inference Device:** CUDA GPU acceleration enabled by default (falls back to AVX2 multi-threaded CPU on non-NVIDIA systems).
+- **Segment Size:** 7.8 seconds (maximum contextual receptive field for neural transformers).
+- **FP16 Acceleration:** Active for high-throughput tensor calculations on modern GPUs.
+- **Parallel Workers:** Automatically tuned to maximum concurrent jobs supported by your GPU VRAM and CPU cores.
+- **User Control:** If you are running other heavy tasks or on laptop battery, you can easily switch to **Balanced** or **Eco** at any time using the profile switcher in the top navigation bar.

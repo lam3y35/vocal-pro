@@ -11,7 +11,7 @@ export type ModelName =
   | "mdx_extra_q";
 
 export type OutputMode = "vocals" | "background" | "karaoke" | "all_stems";
-export type OutputFormat = "wav" | "flac" | "mp3" | "ogg";
+export type OutputFormat = "wav" | "flac" | "mp3" | "ogg" | "aac" | "m4a";
 export type WavBitDepth = "PCM_16" | "PCM_24" | "FLOAT";
 export type DeviceOption = "auto" | "cuda" | "cpu";
 export type VideoOutputMode = "both" | "video_only" | "audio_only";
@@ -42,6 +42,7 @@ export interface JobOptions {
   overlap_seconds: number;
   output_video: boolean;
   video_output_mode: VideoOutputMode;
+  delete_input_file?: boolean;
   ffmpeg_faststart: boolean;
   ffmpeg_path: string;
   include_sfx: boolean;
@@ -253,18 +254,19 @@ export interface ChangelogRelease {
 export const DEFAULT_JOB_OPTIONS: JobOptions = {
   model: "htdemucs",
   output_mode: "vocals",
-  output_format: "wav",
+  output_format: "mp3",
   audio_bitrate: "320k",
   output_all_stems: false,
   device: "auto",
   shifts: 1,
   overlap: 0.25,
-  segment: 6.0,
+  segment: 7.8,
   large_file_threshold_minutes: 15,
-  chunk_duration_minutes: 12,
+  chunk_duration_minutes: 10,
   overlap_seconds: 5,
   output_video: true,
-  video_output_mode: "both",
+  video_output_mode: "video_only",
+  delete_input_file: false,
   ffmpeg_faststart: true,
   ffmpeg_path: "",
   include_sfx: true,

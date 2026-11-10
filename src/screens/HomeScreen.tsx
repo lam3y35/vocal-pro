@@ -45,12 +45,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
             </div>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            VocalPro v3 — Studio AI Vocal &amp; Multi-Stem Separator
+            VocalPro v3 — Cinema Movie &amp; Studio AI Audio Separator
           </h1>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Powered by Hybrid Transformer Demucs (4-stem &amp; 6-stem), multi-process worker pool,
-            in-memory float32 6-band parallel spectral denoise, RBJ 8 kHz air restoration, and a
-            lock-free Rust real-time stem mixer.
+            Extract, isolate, and remux dialogue, score, and SFX directly from feature-length movies (MP4, MKV, AVI)
+            using sequential chunked Demucs inference, 1:1 timeline synchronization, and compact perceptual studio encoding.
           </p>
         </div>
 
