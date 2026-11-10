@@ -1,277 +1,321 @@
-# VocalPro v3 — Complete Audio Settings & Fine-Tuning Guide
+# VocalPro v3 — Master Reference & Fine-Tuning Guide
 
-> **Target Audience:** Audio Producers, Sound Engineers, DJs, Content Creators, and Vocalists.  
-> **Purpose:** Detailed reference explaining every setting in VocalPro v3, how each parameter mathematically alters the audio signal, and concrete before/after examples demonstrating how to achieve pristine, studio-grade vocal separation.
+> **Target Audience:** Audio Producers, Sound Engineers, DJs, Content Creators, Vocalists, and Developers.  
+> **Purpose:** Comprehensive, detailed reference explaining every dashboard card, button, technical metric, separation parameter, and advanced setting in VocalPro v3, accompanied by before/after audio examples and tuning recommendations.
 
 ---
 
 ## 📑 Table of Contents
-1. [Core AI Separation & Neural Models](#1-core-ai-separation--neural-models)
-2. [Acoustic Quality & Artifact Suppression (TTA & Overlap)](#2-acoustic-quality--artifact-suppression)
-3. [Vocal Noise Gating & Bleed Isolation](#3-vocal-noise-gating--bleed-isolation)
-4. [Spectral Denoising & Multi-Band Filtering](#4-spectral-denoising--multi-band-filtering)
-5. [High-Frequency Air & Clarity Restoration (HF Restore)](#5-high-frequency-air--clarity-restoration)
-6. [Harmonic-Percussive SFX Separation (HPSS)](#6-harmonic-percussive-sfx-separation)
-7. [Hardware Calibration, Memory Caps & Speed Tuning](#7-hardware-calibration-memory-caps--speed-tuning)
-8. [Turnkey Preset Recipes for Common Scenarios](#8-turnkey-preset-recipes-for-common-scenarios)
+1. [Dashboard & Studio Status Bar](#1-dashboard--studio-status-bar)
+   - [Setup Wizard (First-Run Hardware & Studio Setup)](#setup-wizard)
+   - [N4: 0 Listening Ports Explained](#n4-0-listening-ports-explained)
+   - [N5: < 500ms Cooperative Job Cancellation](#n5--500ms-cooperative-job-cancellation)
+   - [Auto-Tune for Hardware Button](#auto-tune-for-hardware-button)
+   - [Python AI Worker Pool & "Restart Python AI Worker"](#python-ai-worker-pool--restart-python-ai-worker)
+2. [Waveform Preview & Interactive Timeline](#2-waveform-preview--interactive-timeline)
+   - [Native Rust 8,000-Point Waveform Preview](#native-rust-8000-point-waveform-preview)
+   - [The Interactive Waveform Scrubber Line](#the-interactive-waveform-scrubber-line)
+3. [Separation Workstation Parameters (With Higher vs. Lower Examples)](#3-separation-workstation-parameters)
+   - [Output Mode (Vocals, Instrumental, All Stems, Karaoke)](#output-mode)
+   - [Audio Output Format & Bit Depth](#audio-output-format--bit-depth)
+   - [Inference Device (CUDA vs. AVX2 CPU)](#inference-device)
+   - [Video Output Mode (Audio Only, Clean Vocals Video, Instrumental Video, Both)](#video-output-mode)
+   - [Random Shifts (Test-Time Augmentation)](#random-shifts-tta)
+   - [Segment Duration (Chunk Length in Seconds)](#segment-duration)
+   - [Overlap Ratio (Sliding Window Crossfade)](#overlap-ratio)
+   - [Parallel Worker Slots (Multi-Process Concurrency)](#parallel-worker-slots)
+4. [Vocal Post-Processing & DSP Chain](#4-vocal-post-processing--dsp-chain)
+   - [VAD Voice Activity Gate](#vad-voice-activity-gate)
+   - [Full-Band & Multi-Band Spectral Denoise](#spectral-denoise)
+   - [High-Frequency Air & Clarity Restoration (HF Restore)](#high-frequency-air-restore)
+   - [Harmonic-Percussive SFX Separation (HPSS)](#hpss-sfx-separation)
+5. [Turnkey Presets & Real-World Voice Examples](#5-turnkey-presets--real-world-voice-examples)
+6. [Advanced Settings Panel Explained](#6-advanced-settings-panel-explained)
+   - [Conflict Policy & Naming Templates](#conflict-policy--naming-templates)
+   - [Cache Management & Folder Preservation](#cache-management)
+   - [Accessibility, UI Scale & Themes](#accessibility-ui-scale--themes)
+   - [OS Integration (Shortcuts & File Associations)](#os-integration)
+7. [Export Diagnostic Log Bundle](#7-export-diagnostic-log-bundle)
 
 ---
 
-## 1. Core AI Separation & Neural Models
+## 1. Dashboard & Studio Status Bar
 
-VocalPro v3 uses deep recurrent and convolutional neural networks trained on multitrack studio stems to perform source separation in both the time and frequency domains.
+### Setup Wizard
+When you open VocalPro or click **Setup Wizard** in the top navigation bar, the setup wizard guides you through optimizing your machine for AI stem separation:
+1. **Hardware Tier Detection:** Probes your physical CPU cores, RAM size, and graphics card. It identifies whether you have an NVIDIA GPU (CUDA), Apple Silicon (MPS), or an AVX2-capable CPU.
+2. **Performance Profile Allocation:** Selects whether your computer should operate in **Eco** (low RAM, 1 worker), **Balanced** (standard multi-core), or **Max Quality** (multi-pass TTA on GPU).
+3. **Storage Location Setup:** Lets you verify or change where your separated songs and stems are saved.
+4. **Worker Initialization:** Performs an internal handshake with the PyTorch worker pool to verify that neural weights load cleanly without crashing.
+
+---
+
+### N4: 0 Listening Ports Explained
+In older AI tools (and Python web interfaces like Gradio, Streamlit, or Flask), the application runs a local web server listening on ports like `http://localhost:8000` or `127.0.0.1:5000`. This approach creates major real-world problems:
+- **Port Conflicts:** If another program or browser tab is using that port, the app fails to start with error `WinError 10055` or `EADDRINUSE`.
+- **Firewall & Antivirus Blocks:** Windows Defender and third-party firewalls frequently block local TCP servers or show annoying security alerts.
+- **Latency & Overhead:** Serialization over HTTP/WebSocket sockets adds latency and memory overhead.
+
+**How VocalPro v3 Solves This:**  
+VocalPro v3 runs on **0 Listening Ports**. The React desktop interface communicates directly with the native Rust Core and the Python AI Worker pool using operating system standard I/O streams (**stdio JSON-Lines IPC**).  
+- No TCP ports are opened.
+- No network traffic is transmitted.
+- 100% private, offline, and completely immune to socket or firewall conflicts.
+
+---
+
+### N5: < 500ms Cooperative Job Cancellation
+In older neural separation applications, clicking "Cancel" either did nothing for 30–60 seconds while the GPU finished a huge computation batch, or it forcefully terminated the Python process, crashing the application.
+
+**How VocalPro v3 Solves This:**  
+VocalPro uses **cooperative token-based cancellation**:
+- The Demucs inference loop slices audio into sub-second evaluation chunks.
+- Between every chunk, the worker checks an atomic cancellation token received over stdio.
+- When you click **Cancel** (or press the `Escape` key), the worker immediately halts tensor computation, flushes VRAM/RAM buffers, and resets to a ready state in **under 500 milliseconds (< 500ms)** without needing to restart the app.
+
+---
+
+### Auto-Tune for Hardware Button
+Located on the Studio Overview dashboard, the **Auto-Tune for Hardware** button runs an automated performance audit of your computer:
+1. It queries physical CPU cores, logical threads, available RAM, and GPU VRAM.
+2. It tests your temp disk write throughput to ensure smooth multi-stem saving.
+3. It automatically sets the optimal parameters:
+   - Sets **Parallel Workers** (e.g., 1 for 8 GB RAM, 2 for 16 GB, 4 for 32+ GB).
+   - Sets **Segment Duration** (6.0s on CPU, 7.8s on CUDA).
+   - Sets **Inference Precision** (FP32 on CPU, FP16 on Tensor Core GPUs).
+4. It displays an instant notification banner showing the exact settings applied (e.g., `Auto-tuned for hardware: CUDA • 2 parallel workers • segment=7.8s`).
+
+---
+
+### Python AI Worker Pool & "Restart Python AI Worker"
+- **What is the Worker Pool?**  
+  To keep the desktop interface buttery smooth at 60 FPS, all heavy neural network computation happens in isolated background processes called **Workers**.
+- **What does the "Restart Python AI Worker" button do?**  
+  If a corrupted audio file, an out-of-memory condition, or an unexpected OS driver error ever freezes the background AI process, clicking **Restart Python AI Worker** immediately terminates any hanging worker process and spawns a fresh, clean PyTorch instance in under 50 milliseconds. You never have to restart the whole application or lose your open workspace.
+
+---
+
+## 2. Waveform Preview & Interactive Timeline
+
+### Native Rust 8,000-Point Waveform Preview
+When you add an audio file, VocalPro instantly generates an 8,000-point visual waveform preview.
+- **Why Native Rust?**  
+  Instead of loading the entire heavy audio file into Python or the browser's JavaScript memory, a specialized Rust DSP engine (using the `symphonia` audio library) reads the file headers and extracts 8,000 min/max amplitude peaks in **under 50 milliseconds**.
+- **What do the peaks mean?**  
+  - Taller vertical bars represent louder musical sections (choruses, drops, drum beats).
+  - Thinner horizontal bars represent quieter sections, speech pauses, or acoustic intros.
+
+---
+
+### The Interactive Waveform Scrubber Line
+Inside the waveform display, you will notice a vertical line that moves as audio plays:
+- **This is the Interactive Playhead / Scrubber.**
+- **How to use it:** You can click or drag anywhere along the waveform to scrub through the audio and immediately seek to that exact time in the song.
+- When listening to separated stems in the Stem Mixer, moving this scrubber jumps all stems (vocals, drums, bass, instruments) simultaneously in lockstep.
+
+---
+
+## 3. Separation Workstation Parameters
+
+This section explains every option available on the Separation Workstation and how setting each parameter **higher or lower** directly impacts the sound and app speed.
+
+---
+
+### Output Mode
+Controls which stems are written to disk:
+1. **Vocals Only:** Extracts only the clean lead/backing vocal stem and discards other stems. Ideal when you only need acapellas for remixing or vocal analysis.
+2. **Instrumental / Backing Track:** Extracts the complete backing track without vocals (instant karaoke).
+3. **All Stems (Recommended for Producers):** Saves every isolated track: Vocals, Drums, Bass, and Other (plus Piano and Guitar if using the 6-stem model).
+4. **Karaoke Mode:** Generates a lead vocal track and an accompaniment track with an optional subtle guide vocal.
+
+---
+
+### Audio Output Format & Bit Depth
+* **`WAV` (16-bit / 24-bit / 32-bit Float PCM):**  
+  - *When to use:* Studio production, mixing, and mastering in DAWs (Ableton, FL Studio, Logic, Pro Tools).  
+  - *Quality:* 100% lossless uncompressed.  
+* **`FLAC` (Free Lossless Audio Codec):**  
+  - *When to use:* Archiving stems where you want bit-perfect studio quality at ~50% the file size of WAV.  
+* **`MP3` (LAME CBR 128k – 320k):**  
+  - *When to use:* Quick previews, sharing via chat apps, or mobile storage. Always use **320 kbps** for maximum high-frequency clarity.
+
+---
+
+### Inference Device
+* **`CUDA` (NVIDIA Graphics Card):**  
+  Uses hardware Tensor Cores. Runs 3x to 10x faster than CPU.
+* **`CPU` (Multi-Threaded AVX2 / Apple Silicon):**  
+  Uses high-performance vectorized CPU SIMD instructions. Flawless audio quality; recommended if your computer does not have an NVIDIA GPU.
+
+---
+
+### Video Output Mode
+When you separate a video file (`.mp4`, `.mkv`, `.avi`, `.mov`), VocalPro can automatically remix the video:
+* **Audio Only:** Extracts the soundtrack and outputs standard audio files.
+* **Clean Vocals Video:** Replaces the video's original audio with the isolated speech/vocal stem (perfect for interviews and subtitles).
+* **Instrumental Video:** Replaces the video's audio with the instrumental backing track (ideal for video karaoke).
+* **Both:** Produces two synchronized video copies.
+
+---
+
+### Random Shifts (TTA)
+* **Parameter Range:** `0` to `4` (Default: `1`)
+* **What it does:** Test-Time Augmentation (TTA). The engine shifts the audio waveform randomly by a few samples, runs inference on each shifted copy, shifts them back, and averages the spectrograms.
+* **Impact of Changing:**
+  - **Higher (`shifts = 2` to `4`):**  
+    * *Audio Result:* Eliminates all phase roughness, metallic flutter, and high-frequency "underwater" artifacts. Vocals sound warm, natural, and open.  
+    * *Speed Trade-off:* Each shift adds a full inference pass (e.g., `shifts = 2` takes 3x the processing time of `shifts = 0`).  
+  - **Lower (`shifts = 0`):**  
+    * *Audio Result:* Fastest processing speed (1x time). However, you may hear subtle robotic or metallic phase artifacts on sustained vocal vowels.  
+    * *Best for:* Quick draft previews.
+
+---
+
+### Segment Duration
+* **Parameter Range:** `4.0` seconds to `10.0` seconds (Default: `6.0s` CPU / `7.8s` GPU)
+* **What it does:** The temporal window size processed by the neural network in each chunk.
+* **Impact of Changing:**
+  - **Higher (`7.8s` to `10.0s`):**  
+    * *Audio Result:* The AI sees more musical context, resulting in cleaner separation of slow vocal vibrato, long reverb tails, and deep sub-bass notes.  
+    * *Resource Trade-off:* Requires more RAM and GPU VRAM (up to 4 GB VRAM).  
+  - **Lower (`4.0s` to `5.0s`):**  
+    * *Audio Result:* Slightly less bass coherency, but still very clean vocals.  
+    * *Resource Advantage:* Keeps VRAM under 1.8 GB, preventing Out-Of-Memory (OOM) crashes on budget laptops.
+
+---
+
+### Overlap Ratio
+* **Parameter Range:** `0.10` (10%) to `0.50` (50%) (Default: `0.25` / 25%)
+* **What it does:** How much adjacent 6-second segments overlap when passed through the AI. Overlaps are crossfaded using smooth cosine window curves.
+* **Impact of Changing:**
+  - **Higher (`0.35` to `0.50`):**  
+    * *Audio Result:* 100% transparent transitions. Eliminates volume dips, clicks, or popping noises at the boundaries between segments.  
+    * *Trade-off:* Takes ~30% longer to process.  
+  - **Lower (`0.10` to `0.15`):**  
+    * *Audio Result:* Processing is ~25% faster, but on quiet vocals or ambient songs, you may hear faint periodic volume flutter every few seconds.
+
+---
+
+### Parallel Worker Slots
+* **Parameter Range:** `1` to `4` concurrent worker processes (Default: `2`)
+* **What it does:** How many songs are processed at the exact same time.
+* **Impact of Changing:**
+  - **Higher (`3` to `4` workers):**  
+    * *Performance:* If you add a batch of 10 songs, 4 songs will separate simultaneously, cutting total batch time in half.  
+    * *Hardware Requirement:* Requires at least 16 GB RAM and 8+ CPU cores.  
+  - **Lower (`1` worker):**  
+    * *Performance:* Processes songs one by one in sequence.  
+    * *Best for:* Machines with 8 GB RAM or when you want your PC to stay cool and quiet while working in other apps.
+
+---
+
+## 4. Vocal Post-Processing & DSP Chain
+
+After the neural network separates the raw stem, VocalPro runs an in-memory 32-bit floating-point DSP cleaning chain:
 
 ```
-Mixed Audio (Stereo / 44.1kHz)
-   │
-   ├──▶ Neural Network Backbone (Demucs / MDX)
-   │        ├── Vocals Stem
-   │        ├── Drums Stem
-   │        ├── Bass Stem
-   │        └── Other (Guitars, Synths, Strings)
-   │
-   └──▶ DSP Post-Processing Chain (Gate ➔ Denoise ➔ HF Restore ➔ Normalize)
+Raw AI Vocal ──▶ [VAD Noise Gate] ──▶ [Spectral Denoise] ──▶ [HF Air Restore] ──▶ Pristine Acapella
 ```
 
-### `model_name` (Neural Network Architecture)
-* **Default:** `htdemucs`
-* **Options:** `htdemucs`, `htdemucs_ft`, `htdemucs_6s`, `mdx_extra`, `mdx_extra_q`
-* **What it does:** Selects the mathematical weight model loaded by PyTorch.
-  * **`htdemucs` (Hybrid Transformer):** 4-stem separation (Vocals, Drums, Bass, Other). Excellent balance of speed and fidelity. Recommended for general music.
-  * **`htdemucs_ft` (Fine-Tuned):** Higher resolution weights trained for 4x more epochs. Delivers noticeably clearer vocal boundaries with less instrumental bleed at the cost of ~25% slower inference.
-  * **`htdemucs_6s` (6-Stem Studio Edition):** Isolates **6 distinct stems**: Vocals, Drums, Bass, Other, **Piano**, and **Guitar**. Essential when you need acoustic piano or guitar isolated from vocals.
-  * **`mdx_extra` (Multi-Domain CrossNet):** Emphasizes complex vocal harmonies and back-vocals separation.
-
-#### 🎧 Audio Effect & Examples:
-* **Scenario A:** Standard Pop/Rock song with acoustic piano.
-  * *Using `htdemucs`:* Piano notes will bleed into the "Other" and slightly into the "Vocals" stem.
-  * *Using `htdemucs_6s`:* The piano is extracted onto its own dedicated track, leaving the vocal stem 100% clean of piano resonance.
+### VAD Voice Activity Gate
+* **`enable_vocal_gate` (`true` / `false`):** Mutes background bleed when the singer is silent between lyrics.
+* **`gate_threshold_db` (`-70 dB` to `-30 dB`):** Volume sensitivity to detect voice.
+  - *Higher (`-45 dB`):* Stricter gate. Cuts out quiet breaths and snare drum bleed, but might accidentally chop off the end of quiet whisper words.
+  - *Lower (`-65 dB`):* Gentle gate. Preserves every breath and subtle vocal tail.
+* **`gate_floor_db` (`-90 dB` to `-30 dB`):** Volume floor during silence. `-60 dB` reduces bleed to inaudible levels; `-90 dB` produces absolute digital silence.
 
 ---
 
-## 2. Acoustic Quality & Artifact Suppression
-
-These parameters control **Test-Time Augmentation (TTA)** and sliding-window analysis.
-
-### `shifts` (Test-Time Augmentation Shift Count)
-* **Range:** `0` to `5` (Default: `1`)
-* **What it does:** When `shifts > 0`, VocalPro shifts the incoming audio waveform randomly along the time axis, runs the neural net on each shifted version, shifts them back, and averages the spectrograms.
-* **Why it matters:** Neural networks are slightly sensitive to the exact phase and sample alignment of transients. Shifting and averaging eliminates phase cancellations.
-
-#### 🎧 Audio Impact:
-* **`shifts = 0` (Fast Mode):** Fastest processing (1x time). You may hear subtle metallic "phase smearing" or "comb filtering" on sustained vocal notes.
-* **`shifts = 1` (Recommended Default):** 2x inference passes. Completely removes phase roughness. Vocals sound natural, warm, and clear.
-* **`shifts = 2` to `3` (Mastering Quality):** 3x to 4x inference passes. Ultra-smooth acapella, zero phase flutter, ideal for final broadcast release or sampling.
+### Spectral Denoise
+* **`enable_spectral_denoise` (`true` / `false`):** Removes residual background instrument hum or cymbal sizzle using spectral subtraction.
+* **`denoise_strength` (`0.00` to `1.00`, Default: `0.55`):**
+  - *Higher (`0.75` – `0.90`):* Completely strips any remaining instrumental bleed, but setting it too high can make the voice sound "hollow" or "underwater".
+  - *Lower (`0.20` – `0.40`):* Preserves 100% of vocal warmth and room reverb with minimal filtering.
+* **Multi-Band Denoising (`enable_multiband_denoise`):**  
+  Splits the frequency spectrum into 3 independent bands (Low < 250 Hz, Mid 250 Hz – 6 kHz, High > 6 kHz). This allows aggressive cleaning of low bass rumble without touching the vocal mid-range.
 
 ---
 
-### `overlap` (Sliding Window Overlap Ratio)
-* **Range:** `0.10` (10%) to `0.75` (75%) (Default: `0.25` / 25%)
-* **What it does:** Controls how much adjacent 6-second audio segments overlap when passed through the AI engine. Overlapping segments are crossfaded using cosine windowing.
-
-#### 🎧 Audio Impact:
-* **Too low (`< 0.15`):** You might hear faint volume "pulsing" or rhythmic dips every 6 seconds where segments join.
-* **Recommended (`0.25`):** Transparent crossfades with zero seam perception.
-* **High (`0.50`):** 50% overlap. Flawless continuity for classical, ambient, or slow ballad vocals with long reverbs.
+### High-Frequency Air Restore
+* **`enable_hf_restore` (`true` / `false`):**
+  Neural network separation naturally softens ultra-high frequencies (> 8 kHz). When enabled, this applies a high-shelf boost (`+3.0 dB`) to restore studio "sheen", crisp consonants ('s', 't', 'ch'), and natural vocal air.
 
 ---
 
-### `segment` (Chunk Duration in Seconds)
-* **Range:** `4.0` to `12.0` (Default: `6.0` s)
-* **What it does:** The temporal window size sent to the GPU in each batch.
-* **Hardware Impact:**
-  * Lower segment (`4.0` s) reduces GPU VRAM consumption to under 2 GB (prevents Out-Of-Memory errors on entry-level GPUs or integrated graphics).
-  * Higher segment (`7.8` s) gives the AI more musical context (better detection of long vibrato or vocal delays).
+### HPSS SFX Separation
+* **`enable_sfx_separation` (`true` / `false`):**
+  Harmonic-Percussive Source Separation splits background audio into:
+  1. *Harmonic:* Tonal music, chords, guitars, and synths.
+  2. *Percussive:* Drums, beatbox, gunshots, explosions, and sound effects.  
+  Ideal for remixers who want musical chords without drums, or video editors cleaning speech from game SFX.
 
 ---
 
-## 3. Vocal Noise Gating & Bleed Isolation
+## 5. Turnkey Presets & Real-World Voice Examples
 
-When a singer is silent between verses, neural networks often leave faint traces of cymbals, bass rumble, or guitar harmonics. VocalPro includes a specialized vocal activity detector and dynamic gate.
-
-```
-Vocal Stem Input ──▶ [RMS & Spectral Flatness VAD]
-                            │
-                            ├── Is Voice Present?
-                            │      ├── YES ──▶ 0 dB Gain (Unchanged Voice)
-                            │      └── NO  ──▶ Attenuate to Gate Floor (-60 dB)
-```
-
-### `enable_vocal_gate`
-* **Type:** Boolean (`true` / `false`, Default: `true`)
-* **What it does:** Activates automatic silence gating between vocal phrases.
-
-### `gate_threshold_db`
-* **Range:** `-70.0 dB` to `-30.0 dB` (Default: `-55.0 dB`)
-* **What it does:** The volume sensitivity threshold for detecting human voice.
-  * If the audio level exceeds this threshold and matches vocal spectral characteristics (spectral flatness check), the gate opens.
-
-### `gate_floor_db`
-* **Range:** `-90.0 dB` to `-30.0 dB` (Default: `-60.0 dB`)
-* **What it does:** The attenuation floor applied to silent / non-vocal sections.
-  * `-60.0 dB` drops background bleed by 60 dB (inaudible in a mix).
-  * `-90.0 dB` creates complete digital black (zero sound).
-
-### `min_vocal_duration`
-* **Range:** `0.02 s` to `0.30 s` (Default: `0.08 s`)
-* **What it does:** Minimum length of vocal activity to trigger the gate. Prevents short drum clicks or snare leakage from opening the gate.
-
-#### 🎧 Fine-Tuning Voice Examples:
-* **Problem: The singer's quiet whispers or trailing breath sounds at the end of words are being cut off (choppy voice).**
-  * *Solution:* Lower `gate_threshold_db` to `-65.0 dB` and set `gate_floor_db` to `-45.0 dB` for a softer, more gradual gating curve.
-* **Problem: Drum snare hits in an acoustic recording are leaking through during pauses.**
-  * *Solution:* Raise `gate_threshold_db` to `-48.0 dB` and increase `min_vocal_duration` to `0.12 s`.
+| Preset Name | Best For | Model | Shifts | Overlap | Gate | HF Boost | Sound Character |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Crystal-Clear Studio Vocals** | Sampling, remix acapellas | `htdemucs_ft` | 2 | 0.35 | -55 dB | +3.5 dB | Crisp, airy, zero bleed, polished modern studio sound. |
+| **Full 6-Stem Band Split** | Acoustic covers, guitar/piano | `htdemucs_6s` | 1 | 0.25 | -52 dB | +2.0 dB | Isolates piano and guitar onto dedicated tracks. |
+| **Cinema Dialogue & SFX Cleaner** | Podcasts, videos, gameplay | `htdemucs` | 1 | 0.25 | -50 dB | +1.5 dB | Removes room rumble and isolates clear speaking voice. |
+| **Fast DJ Preview (Eco)** | Rapid mashup prep | `htdemucs` | 0 | 0.15 | -50 dB | 0.0 dB | Maximum processing speed with solid clarity. |
 
 ---
 
-## 4. Spectral Denoising & Multi-Band Filtering
+## 6. Advanced Settings Panel Explained
 
-Neural separation can occasionally leave residual "music bleed" (e.g., high hi-hat bleed or low synth hum) across the frequency spectrum. VocalPro uses spectral gating noise reduction.
+Inside the **Settings (⚙️)** panel, toggling **Advanced View** reveals fine-grained engine controls:
 
-### `enable_spectral_denoise` & `denoise_strength`
-* **Range:** `0.00` to `1.00` (Default: `0.55`)
-* **What it does:** Applies short-time Fourier transform (STFT) spectral subtraction to eliminate stationary and residual bleed from the vocal stem.
-
-#### 🎧 Audio Impact:
-* **`0.00` to `0.20` (Gentle):** Preserves 100% of the natural vocal harmonics and room ambiance. Slight instrumental bleed may remain.
-* **`0.40` to `0.60` (Balanced Studio Standard):** Clean acapella with zero perceptible music bleed while keeping the vocal timbre intact.
-* **`> 0.75` (Aggressive):** Extreme cleaning. Caution: setting this too high causes "underwater" swirling artifacts and loses the subtle breath textures of the voice.
-
----
-
-### `enable_multiband_denoise` (Multi-Band Spectral Split)
-* **Type:** Boolean (Default: `false`, Recommended for Bass-Heavy Music)
-* **Split Frequencies (`denoise_band_split_hz`):** `[250.0, 6000.0]` (Sub/Bass, Mid Body, High Air)
-* **Strengths:**
-  * `denoise_strength_low`: `0.35` (Cleans 808s, kick drums, and low-frequency rumble)
-  * `denoise_strength_mid`: `0.10` (Keeps the core human vocal body untouched and warm)
-  * `denoise_strength_high`: `0.25` (Removes cymbal wash and hi-hat sizzle)
-
-#### 🎧 Why Multi-Band Denoising is Powerful:
-Human voice fundamentals sit primarily in the **250 Hz – 4 kHz** range. Standard full-band denoising treats all frequencies equally, which can thin out the singer's voice.  
-Multi-Band denoising allows you to **aggressively eliminate bass and drum rumble (< 250 Hz)** while leaving the **vocal mid-range pristine and uncompressed**.
+### Conflict Policy & Naming Templates
+* **Naming Template (`naming_template`):**  
+  Determines how output files are named. Uses dynamic tags like `{track}_{stem}` (e.g., `MySong_vocals.wav`).
+* **Conflict Policy (`conflict_policy`):**
+  - `append_number`: If `MySong_vocals.wav` already exists, creates `MySong_vocals_1.wav`.
+  - `overwrite`: Overwrites the old file with the new separation.
+  - `skip`: Skips the file if it already exists.
 
 ---
 
-## 5. High-Frequency Air & Clarity Restoration (HF Restore)
-
-All AI stem separation algorithms and spectral gates naturally attenuate ultra-high frequencies (> 8 kHz), which can make isolated vocals sound slightly "veiled" or "muffled".
-
-### `enable_hf_restore`
-* **Type:** Boolean (Default: `true`)
-* **`hf_boost_db`:** `0.0 dB` to `6.0 dB` (Default: `3.0 dB`)
-* **Crossover Frequency:** `8,000 Hz`
-
-```
-Amplitude (dB)
-    │                                  ┌──── +3.0 dB Shelf Boost
-    │                                 ╱
-    │  [Vocal Body: Flat 0 dB]       ╱
- 0dB├───────────────────────────────┘
-    │
-    └──────────────┬───────────────────┬────────▶ Frequency (Hz)
-                  250 Hz             8,000 Hz
-```
-
-#### 🎧 Audio Impact:
-* **With HF Restore Disabled (`0 dB`):** Acapella can sound dry and slightly dark, as if recorded behind a thick pop filter.
-* **With HF Restore Active (`+3.0 dB`):** Restores vocal "sheen", crisp sibilance (the crisp 's', 't', and 'ch' sounds), and modern studio "air" without introducing harshness.
+### Cache Management & Folder Preservation
+* **Preserve Folder Structure:**  
+  When separating batches of files inside nested folders, reproduces the same folder tree in your output directory.
+* **Max Cache Size (GB):**  
+  Limits the disk space used by temporary audio waveforms and downloaded media. Click **Clear Cache** to free disk space instantly.
 
 ---
 
-## 6. Harmonic-Percussive SFX Separation (HPSS)
-
-### `enable_sfx_separation`
-* **Type:** Boolean (Default: `false`)
-* **What it does:** Splits the non-vocal audio into two distinct sub-tracks:
-  1. **Harmonic (Tonal Music):** Guitars, synths, strings, keyboard chords, basslines.
-  2. **Percussive (SFX & Transients):** Drums, beatbox, gunshots, explosions, film sound effects, and Foley.
-* **`sfx_separation_margin_db`:** `5.0 dB` (Higher margin enforces stricter separation).
-
-#### 🎧 Practical Use Cases:
-* **Remixers / Producers:** Extract the pure synth and chord progressions of a song without the drums, allowing you to drop in your own custom drum beats.
-* **Content Creators & Streamers:** Clean dialogue by stripping video game gunshots and explosions onto a separate track.
-
----
-
-## 7. Hardware Calibration, Memory Caps & Speed Tuning
-
-VocalPro dynamically balances CPU, GPU, and RAM to prevent crashes and maximize throughput.
-
-| Setting | Default | Recommended Value | Impact on Application |
-| :--- | :--- | :--- | :--- |
-| `hardware_auto_optimize` | `true` | `true` | Auto-detects RAM/VRAM and configures optimal batching. |
-| `max_concurrent_jobs` | `1` | `1` (or `2` if GPU ≥ 8GB VRAM) | Number of songs processed in parallel. Setting to 1 prevents memory exhaustion. |
-| `fp16_inference` | `false` | `true` (if NVIDIA RTX GPU) | Uses half-precision FP16 tensors. **Cuts separation time by ~40%** with zero audible quality loss on modern GPUs. |
-| `keep_model_warm_in_memory` | `true` | `true` | Keeps Demucs loaded in RAM so subsequent batch songs start instantly without a 3-second warm-up delay. |
-| `audio_bitrate` | `"320k"` | `"320k"` | Quality for MP3/AAC exports (uses CBR for maximum compatibility). |
-| `output_format` | `"wav"` | `"wav"` (or `"flac"`) | Lossless uncompressed 24-bit / 16-bit PCM for professional DAW workflows. |
+### Accessibility, UI Scale & Themes
+* **UI Scale (90%, 100%, 110%, 125%):**  
+  Scales all text, buttons, and faders. Great for high-DPI 4K monitors or smaller laptop screens.
+* **High Contrast Mode (WCAG AAA):**  
+  Increases borders and text contrast for studio environments with dim lighting.
+* **Reduced Motion:**  
+  Disables waveform animations and smooth transitions to conserve CPU.
+* **Always-on-Top:**  
+  Pins the VocalPro window above your DAW (FL Studio, Ableton, etc.) so you can drag and drop stems without losing focus.
+* **Minimize to Tray:**  
+  Hides the window into the Windows System Tray while processing long batches in the background.
 
 ---
 
-## 8. Turnkey Preset Recipes for Common Scenarios
-
-You can instantly configure VocalPro for specific use cases using these recommended recipes:
-
-### 🎤 Preset 1: "Crystal-Clear Studio Vocals" (Sampling & Acapellas)
-* **Goal:** Maximum vocal clarity, zero instrumental bleed, pristine high-end.
-* **Settings:**
-  * `model_name`: `"htdemucs_ft"`
-  * `shifts`: `2`
-  * `overlap`: `0.35`
-  * `enable_vocal_gate`: `true`
-  * `gate_threshold_db`: `-55.0`
-  * `enable_spectral_denoise`: `true`
-  * `denoise_strength`: `0.60`
-  * `enable_hf_restore`: `true`
-  * `hf_boost_db`: `3.5`
+### OS Integration
+* **Register File Associations:**  
+  Associates `.mp3`, `.wav`, `.flac`, and `.mp4` files with VocalPro in Windows Explorer so you can right-click any file and select *"Separate with VocalPro"*.
+* **Create Desktop Shortcut:**  
+  Creates a clean Windows desktop shortcut (`VocalPro.lnk`) pointing to the executable.
 
 ---
 
-### 🎸 Preset 2: "Acoustic Band / Live Performance" (6-Stem Separation)
-* **Goal:** Isolate lead vocals, guitar, and piano into separate stems for acoustic covers or karaoke.
-* **Settings:**
-  * `model_name`: `"htdemucs_6s"`
-  * `output_all_stems`: `true`
-  * `shifts`: `1`
-  * `overlap`: `0.25`
-  * `enable_vocal_gate`: `true`
-  * `gate_threshold_db`: `-52.0`
-  * `enable_spectral_denoise`: `true`
-  * `denoise_strength`: `0.45` (gentle to preserve acoustic guitar bleed warmth)
+## 7. Export Diagnostic Log Bundle
 
----
-
-### ⚡ Preset 3: "Fast DJ / Party Mashup Prep" (High Speed)
-* **Goal:** Process 20 tracks in minutes for live DJing or remix stems.
-* **Settings:**
-  * `model_name`: `"htdemucs"`
-  * `shifts`: `0`
-  * `overlap`: `0.15`
-  * `fp16_inference`: `true`
-  * `enable_spectral_denoise`: `true`
-  * `denoise_strength`: `0.50`
-  * `keep_model_warm_in_memory`: `true`
-
----
-
-### 🎙️ Preset 4: "Podcast / Dialogue & SFX Cleaner"
-* **Goal:** Extract clean speech from noisy background video, music, or game audio.
-* **Settings:**
-  * `model_name`: `"htdemucs"`
-  * `enable_vocal_gate`: `true`
-  * `gate_threshold_db`: `-50.0`
-  * `gate_floor_db`: `-65.0`
-  * `enable_multiband_denoise`: `true`
-  * `denoise_strength_low`: `0.70` (strips air conditioning hum and traffic rumble)
-  * `denoise_strength_mid`: `0.15`
-  * `denoise_strength_high`: `0.40`
-  * `enable_sfx_separation`: `true`
-
----
-
-## 🛠️ How to Edit Settings in VocalPro
-
-1. **Inside the App UI:** Click the **Settings (⚙️)** icon in the navigation bar to access sliders, toggles, and dropdowns for all options with instant preview.
-2. **Export / Import Configurations:** In the Settings panel, click **Export Settings JSON** to save your customized profile (e.g., `MyStudioVocalPreset.json`) and share it across devices.
-3. **Emergency Reset:** Click **Reset to Defaults** at any time to restore factory recommended settings.
+Next to the worker health display in Settings is the **Export Diagnostic Log Bundle** button:
+* **What does it do?**  
+  It compiles a compressed `.zip` archive (`vocalpro_diagnostics.zip`) containing:
+  1. `worker_logs.txt`: Recent terminal logs from the Python Demucs worker pool.
+  2. `settings.json`: Your active application configuration.
+  3. `worker_health.json`: Hardware profile metrics (CPU cores, RAM, GPU VRAM, CUDA capability).
+  4. `sqlite_summary.json`: Database integrity status.
+* **Privacy Guarantee:**  
+  The bundle contains **zero audio files, zero speech data, and zero personal filenames**.
+* **When to use it:**  
+  If you ever encounter an issue or want to report a bug to the development team, export this bundle and share it. It gives developers all the diagnostic information needed to troubleshoot the issue instantly.

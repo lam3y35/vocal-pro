@@ -1278,8 +1278,27 @@ export const useSystemStore = create<SystemState>((set, get) => ({
     });
   },
   setShowChangelogModal: (v) => set({ showChangelogModal: v }),
-  autoOptimizeForHardware: () => {
+  autoOptimizeForHardware: async () => {
     const mode = get().activeProfileMode;
+    try {
+      const profile = await invokeCommand<HardwareProfile>("auto_optimize_for_hardware", { profileMode: mode });
+      if (profile) {
+        set({
+          hardwareProfile: profile,
+          systemBanner: `Auto-tuned for hardware: ${profile.recommended_device.toUpperCase()} • ${profile.recommended_max_concurrent_jobs} parallel workers • segment=${profile.recommended_segment_s}s (Optimal ${mode} profile active)`,
+        });
+        useJobsStore.getState().setParallelWorkers(profile.recommended_max_concurrent_jobs);
+        useJobsStore.getState().setOptions({
+          shifts: profile.recommended_shifts,
+          overlap: profile.recommended_overlap,
+          segment: profile.recommended_segment_s,
+          fp16_inference: profile.recommended_fp16,
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("auto_optimize_for_hardware error:", e);
+    }
     get().setPerformanceProfileMode(mode);
   },
   initApp: async () => {

@@ -21,6 +21,7 @@ export const App: React.FC = () => {
   const changelog = useSystemStore((s) => s.changelog);
   const showChangelogModal = useSystemStore((s) => s.showChangelogModal);
   const showOnboardingModal = useSystemStore((s) => s.showOnboardingModal);
+  const systemBanner = useSystemStore((s) => s.systemBanner);
 
   const setTheme = useSystemStore((s) => s.setTheme);
   const setPerformanceProfileMode = useSystemStore((s) => s.setPerformanceProfileMode);
@@ -120,6 +121,22 @@ export const App: React.FC = () => {
             </span>
           </div>
         </header>
+
+        {systemBanner && (
+          <div className="bg-[#00D4AA]/15 border-b border-[#00D4AA]/40 px-6 py-2.5 text-xs font-mono text-[#00D4AA] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 shrink-0 text-[#00D4AA]" />
+              <span>{systemBanner}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => useSystemStore.setState({ systemBanner: null })}
+              className="p-1 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Scrollable Screen Container */}
         <div className="flex-1 overflow-y-auto p-6">
