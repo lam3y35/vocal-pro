@@ -263,10 +263,11 @@ pub fn classify_hardware_spec(spec: HardwareSpecInput) -> HardwareProfile {
     };
 
     let req_mode = match spec.profile_mode.to_lowercase().as_str() {
+        "auto" => "auto",
         "eco" => "eco",
         "balanced" => "balanced",
         "max_quality" => "max_quality",
-        _ => "max_quality",
+        _ => "auto",
     };
 
     let effective_mode = if req_mode == "auto" {

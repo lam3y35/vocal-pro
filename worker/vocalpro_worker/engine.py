@@ -662,13 +662,14 @@ def run_separation_job(
     overlap_sec = float(opts.get("overlap_seconds", 5.0))
     cooldown_sec = float(opts.get("cooldown_between_chunks_seconds", 0.0))
 
-    is_movie = input_path.suffix.lower() in VIDEO_EXTENSIONS or str(opts.get("video_output_mode", "")).lower() != "audio_only"
+    is_movie = (input_path.suffix.lower() in VIDEO_EXTENSIONS) or bool(opts.get("movie_mode", False))
     if orig_duration_s > threshold_min * 60.0 or (is_movie and orig_duration_s > 180.0):
         # Large-file / movie chunked path (SEP-05)
         chunk_samples = int(chunk_min * 60.0 * sr)
+        max_overlap_samples = max(int(sr * 0.5), int(chunk_samples * 0.4))
         overlap_sec_actual = max(15.0, overlap_sec) if is_movie else overlap_sec
-        overlap_samples = int(overlap_sec_actual * sr)
-        hop_samples = max(1, chunk_samples - overlap_samples)
+        overlap_samples = min(int(overlap_sec_actual * sr), max_overlap_samples)
+        hop_samples = max(int(sr * 0.5), chunk_samples - overlap_samples)
         chunk_starts = list(range(0, target_samples, hop_samples))
         num_chunks = len(chunk_starts)
 

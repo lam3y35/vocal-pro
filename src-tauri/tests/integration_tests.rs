@@ -12,12 +12,24 @@ use vocalpro_lib::worker::job_queue::JobStatus;
 use vocalpro_lib::worker::protocol::JobOptions;
 
 fn python_bin() -> PathBuf {
-    let venv_py = PathBuf::from("/home/antigravity/.venv/bin/python");
-    if venv_py.exists() {
-        venv_py
-    } else {
-        PathBuf::from("python3")
+    if let Ok(v) = std::env::var("VOCALPRO_PYTHON") {
+        let p = PathBuf::from(v);
+        if p.exists() {
+            return p;
+        }
     }
+    let candidates = [
+        worker_dir().join(".venv").join("bin").join("python"),
+        worker_dir().join(".venv").join("bin").join("python3"),
+        worker_dir().join(".venv").join("Scripts").join("python.exe"),
+        PathBuf::from("/home/antigravity/.venv/bin/python"),
+    ];
+    for c in candidates {
+        if c.exists() {
+            return c;
+        }
+    }
+    PathBuf::from("python3")
 }
 
 fn worker_dir() -> PathBuf {
@@ -32,6 +44,28 @@ fn ref_audio_dir() -> PathBuf {
         .parent()
         .unwrap()
         .join("benchmarks/reference-set")
+}
+
+fn ensure_ref_wav(name: &str) -> PathBuf {
+    let p = ref_audio_dir().join(name);
+    if !p.exists() {
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let sr = if name.contains("48k") { 48000_u32 } else { 44100_u32 };
+        let channels = if name.contains("mono") { 1_u16 } else { 2_u16 };
+        let frames = (sr as usize) * 4;
+        let mut samples = vec![0.0_f32; frames * (channels as usize)];
+        for i in 0..frames {
+            let t = (i as f32) / (sr as f32);
+            let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin() * 0.5;
+            for ch in 0..(channels as usize) {
+                samples[i * (channels as usize) + ch] = s;
+            }
+        }
+        let _ = write_pcm16_wav(&samples, sr, channels, &p);
+    }
+    p
 }
 
 #[test]
@@ -145,8 +179,7 @@ fn test_legacy_migration_imports_all_files_and_deduplicates_outputs() {
 
 #[test]
 fn test_native_symphonia_waveform_under_300ms_and_live_stem_mixer() {
-    let ref_wav = ref_audio_dir().join("track_01_pop_stereo_44k.wav");
-    assert!(ref_wav.exists(), "Reference WAV must exist");
+    let ref_wav = ensure_ref_wav("track_01_pop_stereo_44k.wav");
 
     let t0 = Instant::now();
     let wf = vocalpro_lib::audio::waveform::compute_waveform_8000(&ref_wav).unwrap();
@@ -404,7 +437,7 @@ async fn test_worker_supervisor_end_to_end_separation_and_sub_500ms_cancel() {
     assert!(health.running);
     assert_eq!(health.worker_version, "3.0.0");
 
-    let ref_wav = ref_audio_dir().join("track_01_pop_stereo_44k.wav");
+    let ref_wav = ensure_ref_wav("track_01_pop_stereo_44k.wav");
     let out_dir = tmp.path().join("out_sep");
 
     let mut opts = JobOptions::default();
@@ -468,8 +501,8 @@ async fn test_multi_process_parallel_batch_and_sigkill_crash_isolation() {
     ctx.set_max_concurrent_jobs(2).unwrap();
     assert_eq!(ctx.worker_health().max_concurrent_workers, 2);
 
-    let ref1 = ref_audio_dir().join("track_01_pop_stereo_44k.wav");
-    let ref2 = ref_audio_dir().join("track_02_mono_48k.wav");
+    let ref1 = ensure_ref_wav("track_01_pop_stereo_44k.wav");
+    let ref2 = ensure_ref_wav("track_02_mono_48k.wav");
     let out_dir = tmp.path().join("out_batch");
 
     let mut opts = JobOptions::default();
