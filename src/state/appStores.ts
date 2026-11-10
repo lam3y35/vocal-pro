@@ -16,7 +16,7 @@ import {
   WorkerHealth,
 } from "../bindings";
 import { SupportedLocale } from "../i18n/translations";
-import { invokeCommand, toAssetUrl } from "../ipc";
+import { invokeCommand, isTauriRuntime, toAssetUrl } from "../ipc";
 
 // ---------------------------------------------------------------------------
 // 1. Jobs Store (Queue, Priority, Reorder, Pause/Resume, Multi-Job Tabs, Cancel)
@@ -227,22 +227,21 @@ export const useJobsStore = create<JobsState>((set, get) => ({
     })),
   setActiveJobId: (jobId) => set({ activeJobId: jobId }),
 
-  startSeparationBatch: () => {
+  startSeparationBatch: async () => {
     const { selectedFiles, options, customOutputDir, parallelWorkers, appendLog } = get();
     if (selectedFiles.length === 0) return;
 
-    void invokeCommand("start_separation_batch", {
-      inputs: selectedFiles,
-      outputDir: customOutputDir || "",
-      options,
-    });
+    if (!isTauriRuntime()) {
+      useSystemStore.getState().showBanner(
+        "⚠️ Browser Mode: Tauri Desktop runtime required to run native PyTorch Demucs models. Run 'npm run tauri dev' or launch vocalpro.exe."
+      );
+      appendLog("[notice] Web browser mode detected. Real GPU/CPU AI separation requires native Tauri runtime.");
+    }
 
     const maxSlots = Math.max(1, parallelWorkers);
     const newJobs: JobRecord[] = selectedFiles.map((filePath, idx) => {
       const base = filePath.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || `track_${idx + 1}`;
-      const outDir = customOutputDir
-        ? `${customOutputDir}/${base}`
-        : `output_vocals/${base}`;
+      const outDir = customOutputDir ? `${customOutputDir}/${base}` : "";
       const segTotal = options.model === "htdemucs_ft" ? 32 : 8;
       const subTotal = options.model === "htdemucs_ft" ? 4 : options.ensemble_mode ? 2 : 1;
       const assignedSlot = idx % maxSlots;
@@ -253,12 +252,12 @@ export const useJobsStore = create<JobsState>((set, get) => ({
         options: { ...options },
         status: "loading_model",
         phase: "loading_model",
-        percent: 2,
+        percent: 5,
         segment_index: 0,
         segment_total: segTotal,
         sub_model_index: 0,
         sub_model_total: subTotal,
-        eta_s: 6.4,
+        eta_s: 12.0,
         message: `[Worker #${assignedSlot + 1}] Loading ${options.model} (${options.device.toUpperCase()})...`,
         stems: [],
         comparison_samples: [],
@@ -276,150 +275,87 @@ export const useJobsStore = create<JobsState>((set, get) => ({
       activeJobId: newJobs[0].job_id,
     }));
 
-    for (const job of newJobs) {
-      appendLog(
-        `[slot-${job.worker_slot ?? 0}:separate] Dispatched ${job.job_id} -> model=${job.options.model}, format=${job.options.output_format}, bit_depth=${job.options.wav_bit_depth}`
-      );
-      let step = 0;
-      const timer = setInterval(() => {
-        if (get().queuePaused) return;
-        step += 1;
-        const curr = get().jobs.find((j) => j.job_id === job.job_id);
-        if (!curr || curr.status === "cancelled" || curr.status === "done" || curr.status === "failed") {
-          clearInterval(timer);
-          activeTimers.delete(job.job_id);
-          return;
+    appendLog(
+      `[batch:start] Dispatched batch of ${selectedFiles.length} file(s) -> model=${options.model}, format=${options.output_format}`
+    );
+
+    try {
+      // 1. Submit batch to real Rust backend
+      const promise = invokeCommand<JobRecord[]>("start_separation_batch", {
+        inputs: selectedFiles,
+        outputDir: customOutputDir || "",
+        options,
+      });
+
+      // 2. Poll real job records from Rust supervisor
+      const pollTimer = setInterval(async () => {
+        try {
+          const liveJobs = await invokeCommand<JobRecord[]>("list_jobs");
+          if (liveJobs && Array.isArray(liveJobs) && liveJobs.length > 0) {
+            set((s) => {
+              const liveMap = new Map(liveJobs.map((j) => [j.job_id, j]));
+              const updated = s.jobs.map((j) => {
+                const live = liveMap.get(j.job_id);
+                return live ? { ...j, ...live } : j;
+              });
+              return { jobs: updated };
+            });
+          }
+        } catch {
+          // ignore
         }
-        if (step <= curr.segment_total) {
-          const pct = Math.min(78, Math.round((step / curr.segment_total) * 75) + 5);
-          const subIdx = Math.min(
-            curr.sub_model_total - 1,
-            Math.floor(((step - 1) / curr.segment_total) * curr.sub_model_total)
+      }, 400);
+
+      const records = await promise;
+      clearInterval(pollTimer);
+
+      if (records && Array.isArray(records) && records.length > 0) {
+        set((s) => {
+          const recMap = new Map(records.map((r) => [r.input_path, r]));
+          return {
+            jobs: s.jobs.map((j) => {
+              const realRec = recMap.get(j.input_path);
+              return realRec ? { ...j, ...realRec, status: "done", percent: 100 } : j;
+            }),
+          };
+        });
+
+        // Refresh outputs & history directly from SQLite
+        const [outs, hists] = await Promise.all([
+          invokeCommand<OutputFolderEntry[]>("list_outputs"),
+          invokeCommand<SeparationHistoryEntry[]>("list_separation_history"),
+        ]);
+
+        if (outs && Array.isArray(outs) && outs.length > 0) {
+          useLibraryStore.setState({ outputs: outs });
+          const firstOut = outs[0];
+          if (firstOut) {
+            useMixerStore.getState().loadFolderStems(firstOut);
+          }
+        }
+
+        if (hists && Array.isArray(hists) && hists.length > 0) {
+          useLibraryStore.setState({ separationHistory: hists });
+        }
+
+        for (const rec of records) {
+          appendLog(
+            `[job_done] Completed ${rec.input_path} -> ${rec.stems.length} stems written to ${rec.output_dir}`
           );
-          set((s) => ({
-            jobs: s.jobs.map((j) =>
-              j.job_id === job.job_id
-                ? {
-                    ...j,
-                    status: "inferring",
-                    phase: "inference",
-                    segment_index: step,
-                    sub_model_index: subIdx,
-                    percent: pct,
-                    eta_s: Number(Math.max(0.2, (curr.segment_total - step) * 0.35).toFixed(1)),
-                    message: `Demucs segment ${step}/${curr.segment_total} (sub-model ${subIdx + 1}/${curr.sub_model_total})`,
-                  }
-                : j
-            ),
-          }));
-        } else if (step === curr.segment_total + 1) {
-          set((s) => ({
-            jobs: s.jobs.map((j) =>
-              j.job_id === job.job_id
-                ? {
-                    ...j,
-                    status: "post_processing",
-                    phase: j.options.enable_sfx_separation ? "postprocess_sfx" : "postprocess_denoise",
-                    percent: 88,
-                    eta_s: 0.8,
-                    message: "In-memory float32 DSP: VAD Gate + Spectral Denoise + RBJ 8kHz Air Shelf + Loudness Norm",
-                  }
-                : j
-            ),
-          }));
-        } else {
-          clearInterval(timer);
-          activeTimers.delete(job.job_id);
-          const base = job.input_path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || "track";
-          const ext = job.options.output_format;
-          const isSixStem = job.options.model === "htdemucs_6s";
-          const saveAll = isSixStem || job.options.output_all_stems || job.options.output_mode === "all_stems";
-          const stemNames = isSixStem
-            ? ["vocals", "drums", "bass", "guitar", "piano", "other"]
-            : saveAll
-            ? ["vocals", "drums", "bass", "other"]
-            : ["vocals"];
-          if (job.options.karaoke_mode || job.options.output_mode === "karaoke") {
-            stemNames.push("karaoke");
-          }
-          if (job.options.save_background_track || job.options.enable_sfx_separation) {
-            stemNames.push("background");
-          }
-
-          const builtStems = stemNames.map((name) => ({
-            name,
-            path: `${job.output_dir}\\${base}_${name}.${name === "karaoke" || name === "background" ? "wav" : ext}`,
-            duration_s: 194.2,
-            sample_rate: 44100,
-            channels: 2,
-          }));
-
-          set((s) => ({
-            jobs: s.jobs.map((j) =>
-              j.job_id === job.job_id
-                ? {
-                    ...j,
-                    status: "done",
-                    phase: "done",
-                    percent: 100,
-                    eta_s: 0,
-                    elapsed_s: 4.2,
-                    stems: builtStems,
-                    comparison_samples: job.options.generate_comparison_samples
-                      ? [
-                          `${job.output_dir}\\samples\\sample_1_music.wav`,
-                          `${job.output_dir}\\samples\\sample_1_no_music.wav`,
-                        ]
-                      : [],
-                    message: `Completed in 4.2s (${builtStems.length} stems written)`,
-                  }
-                : j
-            ),
-          }));
-
-          useLibraryStore.getState().addCompletedOutput({
-            id: `out-${Date.now()}`,
-            folder_name: base,
-            folder_path: job.output_dir,
-            source_filename: job.input_path.split(/[\\/]/).pop() || base,
-            model: job.options.model,
-            stems: builtStems,
-            bpm: 120,
-            musical_key: "A Minor",
-            musical_scale: "minor",
-            duration_s: 194.2,
-            created_at: new Date().toISOString(),
-          });
-
-          useLibraryStore.getState().addSeparationHistory({
-            id: `hist-${Date.now()}`,
-            files: [job.input_path],
-            model: job.options.model,
-            device: job.options.device,
-            status: "success",
-            date: new Date().toISOString().replace("T", " ").slice(0, 19),
-            elapsed: "4.2s",
-            output_dir: job.output_dir,
-          });
-
-          appendLog(`[job_done] ${job.job_id} finished in 4.2s -> ${builtStems.length} stems saved to ${job.output_dir}`);
-
-          void invokeCommand<OutputFolderEntry[]>("list_outputs").then((outs) => {
-            if (outs && Array.isArray(outs) && outs.length > 0) {
-              useLibraryStore.setState({ outputs: outs });
-            }
-          });
-          void invokeCommand<SeparationHistoryEntry[]>("list_separation_history").then((hists) => {
-            if (hists && Array.isArray(hists) && hists.length > 0) {
-              useLibraryStore.setState({ separationHistory: hists });
-            }
-          });
-          if (get().autoOpenFolder) {
-            void invokeCommand("open_folder", { path: job.output_dir });
+          if (get().autoOpenFolder && rec.output_dir) {
+            void invokeCommand("open_folder", { path: rec.output_dir });
           }
         }
-      }, 280);
-      activeTimers.set(job.job_id, timer);
+      }
+    } catch (err: any) {
+      appendLog(`[batch_error] Failed separation batch: ${err?.message || err}`);
+      set((s) => ({
+        jobs: s.jobs.map((j) =>
+          newJobs.some((nj) => nj.job_id === j.job_id)
+            ? { ...j, status: "failed", error_message: String(err?.message || err) }
+            : j
+        ),
+      }));
     }
   },
 
@@ -944,6 +880,7 @@ interface SystemState {
   exportDiagnosticBundle: () => void;
   setShowChangelogModal: (v: boolean) => void;
   autoOptimizeForHardware: () => void;
+  showBanner: (msg: string) => void;
   initApp: () => Promise<void>;
 }
 
@@ -974,6 +911,7 @@ export const useSystemStore = create<SystemState>((set, get) => ({
   desktopShortcutCreated: true,
   showChangelogModal: false,
   systemBanner: null,
+  showBanner: (msg) => set({ systemBanner: msg }),
   health: {
     running: true,
     worker_version: "3.0.0",

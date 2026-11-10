@@ -403,8 +403,9 @@ pub mod bridge {
 
         #[cfg(target_os = "windows")]
         {
+            let win_path = p_str.replace('/', "\\");
             std::process::Command::new("explorer")
-                .arg(&p_str)
+                .arg(&win_path)
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }
