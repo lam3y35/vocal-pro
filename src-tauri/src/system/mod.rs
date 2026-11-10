@@ -701,55 +701,223 @@ pub fn create_desktop_shortcut(app_data_dir: &Path, exe_path: Option<&Path>) -> 
     Ok(shortcut_path)
 }
 
-pub fn download_media_url(url: &str, uploads_dir: &Path) -> AppResult<(String, PathBuf, String)> {
+pub fn percent_decode_url(input: &str) -> String {
+    let mut result = Vec::new();
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(val) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16) {
+                result.push(val);
+                i += 3;
+                continue;
+            }
+        }
+        if bytes[i] == b'+' {
+            result.push(b' ');
+        } else {
+            result.push(bytes[i]);
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&result).into_owned()
+}
+
+pub fn sanitize_filename(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect();
+    let trimmed = clean.trim().to_string();
+    if trimmed.is_empty() {
+        "downloaded_media.mp3".to_string()
+    } else {
+        trimmed
+    }
+}
+
+pub fn extract_query_filename(url: &str) -> Option<String> {
+    if let Some((_, query)) = url.split_once('?') {
+        for pair in query.split('&') {
+            if let Some((key, val)) = pair.split_once('=') {
+                let key_low = key.to_lowercase();
+                if matches!(key_low.as_str(), "filename" | "file" | "title" | "name" | "track" | "movie") {
+                    let decoded = percent_decode_url(val);
+                    let trimmed = decoded.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn extract_path_filename(url: &str) -> Option<String> {
+    let path_part = url.split('?').next().unwrap_or(url);
+    if let Some(segment) = path_part.rsplit('/').next() {
+        let decoded = percent_decode_url(segment);
+        let trimmed = decoded.trim().to_string();
+        let low = trimmed.to_lowercase();
+        if !trimmed.is_empty() && !matches!(low.as_str(), "stream" | "download" | "audio" | "video" | "get" | "watch" | "media" | "play" | "file") {
+            return Some(trimmed);
+        }
+    }
+    None
+}
+
+pub fn download_media_url(
+    url: &str,
+    downloads_dir: &Path,
+    custom_name: Option<&str>,
+) -> AppResult<(String, PathBuf, String)> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(AppError::InvalidInput(
             "URL must start with http:// or https://".to_string(),
         ));
     }
-    std::fs::create_dir_all(uploads_dir)?;
+    std::fs::create_dir_all(downloads_dir)?;
 
-    let raw_name = url
-        .split('?')
-        .next()
-        .and_then(|u| u.rsplit('/').next())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("downloaded_media.mp3");
+    // 1. Run curl with -O -J to automatically extract the remote filename from Content-Disposition
+    let curl_output = Command::new("curl")
+        .current_dir(downloads_dir)
+        .args([
+            "-L",
+            "-s",
+            "-f",
+            "-O",
+            "-J",
+            "-w",
+            "%{filename_effective}\n%{url_effective}\n%{content_type}\n",
+            url,
+        ])
+        .output();
 
-    let safe_name: String = raw_name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
-                c
-            } else {
-                '_'
+    let mut detected_filename = String::new();
+    let mut redirected_url = String::new();
+    let mut content_type = String::new();
+
+    let curl_success = if let Ok(ref out) = curl_output {
+        if out.status.success() {
+            let stdout_str = String::from_utf8_lossy(&out.stdout);
+            let mut lines = stdout_str.lines();
+            if let Some(l) = lines.next() {
+                detected_filename = l.trim().to_string();
             }
-        })
-        .collect();
-
-    let final_name = if safe_name.contains('.') {
-        safe_name
+            if let Some(l) = lines.next() {
+                redirected_url = l.trim().to_string();
+            }
+            if let Some(l) = lines.next() {
+                content_type = l.trim().to_string();
+            }
+            true
+        } else {
+            false
+        }
     } else {
-        format!("{}.mp3", safe_name)
+        false
     };
-    let dest_path = uploads_dir.join(&final_name);
 
-    let status = Command::new("curl")
-        .args(["-L", "-s", "-f", "-o", &dest_path.to_string_lossy(), url])
-        .status()
-        .map_err(|e| AppError::System(format!("Failed to invoke curl: {}", e)))?;
+    let default_ext = if content_type.contains("video/mp4") {
+        "mp4"
+    } else if content_type.contains("video/") || content_type.contains("matroska") {
+        "mkv"
+    } else if content_type.contains("audio/wav") {
+        "wav"
+    } else if content_type.contains("audio/flac") {
+        "flac"
+    } else if content_type.contains("audio/aac") || content_type.contains("audio/mp4") {
+        "m4a"
+    } else {
+        "mp3"
+    };
 
-    if !status.success() || !dest_path.is_file() {
-        return Err(AppError::System(format!("Failed to download URL: {}", url)));
+    // If curl failed with -O -J (e.g. server refused remote header name), fallback to direct write
+    if !curl_success || detected_filename.is_empty() || !downloads_dir.join(&detected_filename).is_file() {
+        let fallback_name = custom_name
+            .map(|s| s.to_string())
+            .or_else(|| extract_query_filename(url))
+            .or_else(|| extract_path_filename(url))
+            .unwrap_or_else(|| "downloaded_media.mp3".to_string());
+
+        let mut sanitized = sanitize_filename(&fallback_name);
+        if !sanitized.contains('.') {
+            sanitized = format!("{}.{}", sanitized, default_ext);
+        }
+        let fallback_path = downloads_dir.join(&sanitized);
+
+        let status = Command::new("curl")
+            .args(["-L", "-s", "-f", "-o", &fallback_path.to_string_lossy(), url])
+            .status()
+            .map_err(|e| AppError::System(format!("Failed to invoke curl: {}", e)))?;
+
+        if !status.success() || !fallback_path.is_file() {
+            return Err(AppError::System(format!("Failed to download media from URL: {}", url)));
+        }
+
+        let ext = fallback_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp3")
+            .to_uppercase();
+
+        return Ok((sanitized, fallback_path, ext));
     }
 
-    let ext = dest_path
+    // Curl succeeded with -O -J: check if detected filename is generic and can be improved
+    let downloaded_path = downloads_dir.join(&detected_filename);
+    let is_generic = {
+        let stem = downloaded_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        matches!(stem.as_str(), "stream" | "download" | "audio" | "video" | "get" | "watch" | "media" | "play" | "file" | "downloaded_media" | "")
+            || stem.chars().all(|c| c.is_ascii_digit())
+    };
+
+    let better_name = if let Some(cn) = custom_name.filter(|s| !s.trim().is_empty()) {
+        Some(cn.to_string())
+    } else if is_generic {
+        extract_query_filename(url)
+            .or_else(|| extract_query_filename(&redirected_url))
+            .or_else(|| extract_path_filename(&redirected_url))
+            .or_else(|| extract_path_filename(url))
+    } else {
+        None
+    };
+
+    let (final_filename, final_path) = if let Some(ref target_base) = better_name {
+        let mut clean = sanitize_filename(target_base);
+        let curr_ext = downloaded_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or(default_ext);
+        if !clean.contains('.') {
+            clean = format!("{}.{}", clean, curr_ext);
+        }
+        let new_path = downloads_dir.join(&clean);
+        if new_path != downloaded_path {
+            let _ = std::fs::rename(&downloaded_path, &new_path);
+            (clean, new_path)
+        } else {
+            (detected_filename, downloaded_path)
+        }
+    } else {
+        (detected_filename, downloaded_path)
+    };
+
+    let ext = final_path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("mp3")
         .to_uppercase();
 
-    Ok((final_name, dest_path, ext))
+    Ok((final_filename, final_path, ext))
 }
 
 pub fn export_diagnostic_bundle(

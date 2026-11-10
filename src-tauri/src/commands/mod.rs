@@ -460,9 +460,12 @@ impl AppContext {
         self.db.clear_download_history()
     }
 
-    pub fn download_url(&self, url: &str) -> AppResult<DownloadHistoryEntry> {
-        let uploads_dir = self.app_data_dir.join("uploads");
-        let (title, path, format) = download_media_url(url, &uploads_dir)?;
+    pub fn download_url(&self, url: &str, custom_name: Option<&str>) -> AppResult<DownloadHistoryEntry> {
+        let downloads_dir = dirs::audio_dir()
+            .map(|p| p.join("VocalPro/Downloads"))
+            .or_else(|| dirs::download_dir().map(|d| d.join("VocalPro Downloads")))
+            .unwrap_or_else(|| self.app_data_dir.join("downloads"));
+        let (title, path, format) = download_media_url(url, &downloads_dir, custom_name)?;
         let path_str = path.to_string_lossy().to_string();
         self.db
             .record_download_history(&title, url, &path_str, &format, "Original")?;

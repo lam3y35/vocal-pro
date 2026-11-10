@@ -750,7 +750,7 @@ interface LibraryState {
   runAnalysisForFolder: (folderPath: string) => void;
   addSeparationHistory: (entry: SeparationHistoryEntry) => void;
   clearSeparationHistory: () => void;
-  downloadMediaUrl: (url: string) => void;
+  downloadMediaUrl: (url: string, customName?: string) => Promise<void>;
   clearDownloadHistory: () => void;
   savePreset: (name: string, options: JobOptions) => void;
   deletePreset: (name: string) => void;
@@ -850,16 +850,20 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     void invokeCommand("clear_separation_history");
     set({ separationHistory: [] });
   },
-  downloadMediaUrl: async (url) => {
+  downloadMediaUrl: async (url, customName) => {
     try {
       useJobsStore.getState().appendLog(`[download] Fetching direct media from ${url}...`);
-      const result = await invokeCommand<DownloadHistoryEntry>("download_media_url", { url });
+      const result = await invokeCommand<DownloadHistoryEntry>("download_media_url", {
+        url,
+        custom_name: customName?.trim() || undefined,
+        customName: customName?.trim() || undefined,
+      });
       if (result) {
         set((s) => ({
           downloadHistory: [result, ...s.downloadHistory.filter((d) => d.id !== result.id)],
         }));
         useJobsStore.getState().addFiles([result.path]);
-        useJobsStore.getState().appendLog(`[download] Successfully downloaded ${result.title} -> ${result.path}`);
+        useJobsStore.getState().appendLog(`[download] Successfully downloaded "${result.title}" -> ${result.path}`);
       }
     } catch (err: any) {
       useJobsStore.getState().appendLog(`[download_err] Failed to download ${url}: ${err?.message || err}`);

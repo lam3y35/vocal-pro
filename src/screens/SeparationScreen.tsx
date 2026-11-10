@@ -53,6 +53,7 @@ export const SeparationScreen: React.FC = () => {
 
   const [newFilePath, setNewFilePath] = useState("");
   const [downloadUrlInput, setDownloadUrlInput] = useState("");
+  const [downloadCustomNameInput, setDownloadCustomNameInput] = useState("");
   const [presetNameInput, setPresetNameInput] = useState("");
   const [previewRatio, setPreviewRatio] = useState(0.22);
   const [isDragging, setIsDragging] = useState(false);
@@ -262,30 +263,45 @@ export const SeparationScreen: React.FC = () => {
 
           {/* 3. Direct Media URL Downloader Card (DownloadCard parity) */}
           <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-2.5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-              <Download className="w-4 h-4 text-[#6C63FF]" />
-              <span>{t.download_card_title}</span>
-            </h3>
-            <div className="flex gap-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                <Download className="w-4 h-4 text-[#6C63FF]" />
+                <span>{t.download_card_title}</span>
+              </h3>
+              <span className="text-[11px] font-mono text-slate-400">
+                Preserves Original Web Media Filename
+              </span>
+            </div>
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={downloadUrlInput}
+                  onChange={(e) => setDownloadUrlInput(e.target.value)}
+                  placeholder="https://example.com/movie.mp4 or direct audio URL"
+                  className="flex-1 bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-[#6C63FF]"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (downloadUrlInput.trim()) {
+                      downloadMediaUrl(downloadUrlInput.trim(), downloadCustomNameInput.trim());
+                      setDownloadUrlInput("");
+                      setDownloadCustomNameInput("");
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-[#00D4AA] text-slate-950 text-xs font-bold hover:opacity-90 transition shrink-0"
+                >
+                  Fetch &amp; Queue
+                </button>
+              </div>
               <input
-                type="url"
-                value={downloadUrlInput}
-                onChange={(e) => setDownloadUrlInput(e.target.value)}
-                placeholder="https://example.com/audio/track.mp3"
-                className="flex-1 bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-[#6C63FF]"
+                type="text"
+                value={downloadCustomNameInput}
+                onChange={(e) => setDownloadCustomNameInput(e.target.value)}
+                placeholder="Optional custom title/filename (auto-extracted from web server if blank)..."
+                className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-1 text-[11px] text-slate-300 font-mono focus:outline-none focus:border-[#6C63FF]"
               />
-              <button
-                type="button"
-                onClick={() => {
-                  if (downloadUrlInput.trim()) {
-                    downloadMediaUrl(downloadUrlInput.trim());
-                    setDownloadUrlInput("");
-                  }
-                }}
-                className="px-3 py-1.5 rounded-lg bg-[#00D4AA] text-slate-950 text-xs font-bold hover:opacity-90 transition"
-              >
-                Fetch &amp; Queue
-              </button>
             </div>
           </div>
 
