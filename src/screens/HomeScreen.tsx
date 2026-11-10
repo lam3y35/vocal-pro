@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AudioWaveform,
+  CheckCircle2,
   Cpu,
   FolderOpen,
   HardDrive,
@@ -8,9 +9,11 @@ import {
   Play,
   ShieldCheck,
   Sliders,
+  Sparkles,
   Zap,
 } from "lucide-react";
 import { ScreenId } from "../components/Sidebar";
+import { invokeCommand } from "../ipc";
 import { useJobsStore, useLibraryStore, useSystemStore } from "../state/appStores";
 
 interface HomeScreenProps {
@@ -28,54 +31,54 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
   const parallelWorkers = useJobsStore((s) => s.parallelWorkers);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12">
       {/* Studio Hero Banner */}
-      <div className="rounded-2xl bg-gradient-to-r from-[#161822] via-[#1C1F30] to-[#161822] border border-[#25293A] p-6 flex flex-wrap items-center justify-between gap-6">
-        <div className="space-y-2 max-w-2xl">
+      <div className="rounded-3xl bg-gradient-to-r from-[#171A26] via-[#1C2030] to-[#171A26] border border-[#252B3D] p-7 flex flex-wrap items-center justify-between gap-6 shadow-2xl relative overflow-hidden">
+        <div className="space-y-2.5 max-w-2xl relative z-10">
           <div className="flex flex-wrap items-center gap-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00D4AA]/15 border border-[#00D4AA]/30 text-[#00D4AA] text-xs font-semibold">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00F0B5]/15 border border-[#00F0B5]/30 text-[#00F0B5] text-xs font-bold">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>100% Local Offline Studio Engine • Zero Localhost Ports</span>
+              <span>100% Local Offline Studio Engine • Zero Cloud Dependency</span>
             </div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6C63FF]/15 border border-[#6C63FF]/30 text-[#6C63FF] text-xs font-mono">
-              <Cpu className="w-3.5 h-3.5" />
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#6C63FF]/20 border border-[#6C63FF]/40 text-slate-200 text-xs font-mono font-semibold">
+              <Cpu className="w-3.5 h-3.5 text-[#00F0B5]" />
               <span>
-                {hardwareProfile.tier_label} • {parallelWorkers}x Parallel Processes
+                {hardwareProfile.tier_label} • {parallelWorkers}x Workers
               </span>
             </div>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            VocalPro v3 — Cinema Movie &amp; Studio AI Audio Separator
+          <h1 className="text-2xl font-black text-white tracking-tight sm:text-3xl">
+            VocalPro v3 — Cinema Movie &amp; Studio AI Audio Workstation
           </h1>
-          <p className="text-xs text-slate-300 leading-relaxed">
+          <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
             Extract, isolate, and remux dialogue, score, and SFX directly from feature-length movies (MP4, MKV, AVI)
             using sequential chunked Demucs inference, 1:1 timeline synchronization, and compact perceptual studio encoding.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 relative z-10">
           <button
             type="button"
             onClick={() => onNavigate("separate")}
-            className="flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-[#6C63FF] to-[#00D4AA] text-slate-950 font-bold text-xs shadow-lg shadow-[#6C63FF]/25 hover:opacity-95 transition"
+            className="flex items-center gap-2.5 px-6 py-3.5 rounded-2xl bg-gradient-to-r from-[#6C63FF] via-[#7C66FF] to-[#00F0B5] text-slate-950 font-black text-xs tracking-wide shadow-xl shadow-[#6C63FF]/30 hover:opacity-95 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>Open Separation Workstation ({selectedFiles.length} files queued)</span>
+            <span>Open Separation Workstation ({selectedFiles.length} queued)</span>
           </button>
           <button
             type="button"
             onClick={autoOptimizeForHardware}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#0F1016] border border-[#00D4AA]/50 hover:bg-[#00D4AA]/10 text-[#00D4AA] font-semibold text-xs transition"
+            className="flex items-center gap-2 px-4 py-3.5 rounded-2xl bg-[#11131C] border border-[#00F0B5]/50 hover:bg-[#00F0B5]/10 text-[#00F0B5] font-bold text-xs transition"
           >
             <Zap className="w-4 h-4" />
-            <span>Auto-Tune for Hardware</span>
+            <span>Auto-Tune Hardware</span>
           </button>
           <button
             type="button"
             onClick={() => onNavigate("results")}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl bg-[#0F1016] border border-[#25293A] hover:border-[#6C63FF] text-slate-200 font-semibold text-xs transition"
+            className="flex items-center gap-2 px-4 py-3.5 rounded-2xl bg-[#11131C] border border-[#252B3D] hover:border-[#6C63FF] text-slate-200 font-bold text-xs transition"
           >
-            <Sliders className="w-4 h-4 text-[#00D4AA]" />
+            <Sliders className="w-4 h-4 text-[#00F0B5]" />
             <span>Live Stem Mixer</span>
           </button>
         </div>
@@ -83,58 +86,66 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
 
       {/* 4 Telemetry Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Multi-Process Worker Pool</span>
-            <Zap className="w-4 h-4 text-[#00D4AA]" />
+        <div className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-2 shadow-lg">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
+            <span>Worker Process Pool</span>
+            <span className="p-1.5 rounded-lg bg-[#00F0B5]/15 text-[#00F0B5]">
+              <Zap className="w-4 h-4" />
+            </span>
           </div>
-          <div className="text-lg font-bold text-white">
+          <div className="text-xl font-black text-white">
             {parallelWorkers} Parallel Processes
           </div>
-          <div className="text-[11px] text-[#00D4AA]">
-            Stdio JSON-Lines • 0 open TCP ports • &lt;500 ms cancel
+          <div className="text-xs text-[#00F0B5] font-mono">
+            Direct Local Pipes • 0 Network Ports
           </div>
         </div>
 
-        <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-2 shadow-lg">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
             <span>Hardware Profile</span>
-            <Cpu className="w-4 h-4 text-[#6C63FF]" />
+            <span className="p-1.5 rounded-lg bg-[#6C63FF]/20 text-[#6C63FF]">
+              <Cpu className="w-4 h-4" />
+            </span>
           </div>
-          <div className="text-lg font-bold text-white truncate">
-            {health.cuda_available ? "CUDA + FP16 Ready" : `${hardwareProfile.logical_cores}T AVX2 CPU`}
+          <div className="text-xl font-black text-white truncate">
+            {health.cuda_available ? "CUDA + FP16 GPU" : `${hardwareProfile.logical_cores}T AVX2 CPU`}
           </div>
-          <div className="text-[11px] text-slate-400 truncate">
+          <div className="text-xs text-slate-400 truncate font-mono">
             {hardwareProfile.cpu_model} • {(hardwareProfile.total_ram_mb / 1024).toFixed(0)} GB RAM
           </div>
         </div>
 
-        <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-400">
+        <div className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-2 shadow-lg">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
             <span>AI Model Pool</span>
-            <Layers className="w-4 h-4 text-[#FFB800]" />
+            <span className="p-1.5 rounded-lg bg-[#FFB020]/15 text-[#FFB020]">
+              <Layers className="w-4 h-4" />
+            </span>
           </div>
-          <div className="text-lg font-bold text-white">{models.length} Specialist Models</div>
-          <div className="text-[11px] text-slate-400">
-            htdemucs, htdemucs_ft, htdemucs_6s, mdx + Ensemble
+          <div className="text-xl font-black text-white">{models.length} Specialist Models</div>
+          <div className="text-xs text-slate-400 truncate">
+            htdemucs, htdemucs_ft, 6s, mdx
           </div>
         </div>
 
-        <div className="rounded-xl bg-[#161822] border border-[#25293A] p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>State &amp; History Store</span>
-            <HardDrive className="w-4 h-4 text-[#FF5E7E]" />
+        <div className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-2 shadow-lg">
+          <div className="flex items-center justify-between text-xs text-slate-400 font-semibold">
+            <span>Outputs Store</span>
+            <span className="p-1.5 rounded-lg bg-[#FF4D6D]/15 text-[#FF4D6D]">
+              <HardDrive className="w-4 h-4" />
+            </span>
           </div>
-          <div className="text-lg font-bold text-white">SQLite WAL Mode</div>
-          <div className="text-[11px] text-slate-400">
-            {outputs.length} indexed output folders (0 duplicates)
+          <div className="text-xl font-black text-white">{outputs.length} Saved Folders</div>
+          <div className="text-xs text-[#00F0B5] font-mono">
+            SQLite Fast WAL Mode
           </div>
         </div>
       </div>
 
-      {/* Recent Separated Outputs & Model Pool */}
+      {/* Recent Outputs & Models Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 rounded-xl bg-[#161822] border border-[#25293A] p-5 space-y-4">
+        <div className="lg:col-span-2 rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-4 shadow-xl">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               <FolderOpen className="w-4 h-4 text-[#6C63FF]" />
@@ -143,80 +154,84 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onNavigate }) => {
             <button
               type="button"
               onClick={() => onNavigate("results")}
-              className="text-xs text-[#00D4AA] hover:underline"
+              className="text-xs text-[#00F0B5] hover:underline font-bold"
             >
               View All in Mixer →
             </button>
           </div>
 
-          <div className="space-y-2.5">
-            {outputs.map((out) => (
-              <div
-                key={out.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#0F1016] border border-[#25293A] p-3.5 hover:border-[#6C63FF]/50 transition"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-xs text-white">{out.folder_name}</span>
-                    <span className="px-2 py-0.5 rounded bg-[#6C63FF]/20 text-[#6C63FF] font-mono text-[10px]">
-                      {out.model}
-                    </span>
-                    {out.bpm && (
-                      <span className="px-2 py-0.5 rounded bg-[#00D4AA]/15 text-[#00D4AA] font-mono text-[10px]">
-                        {out.bpm} BPM • {out.musical_key}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400 font-mono truncate max-w-lg">
-                    {out.folder_path}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-wrap gap-1">
-                    {out.stems.map((s) => (
-                      <span
-                        key={s.name}
-                        className="px-2 py-0.5 rounded bg-[#161822] border border-[#25293A] text-[10px] uppercase font-mono text-slate-300"
-                      >
-                        {s.name}
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      selectOutput(out.id);
-                      onNavigate("results");
-                    }}
-                    className="px-3 py-1.5 rounded-lg bg-[#6C63FF] text-white text-xs font-semibold hover:bg-[#6C63FF]/90 transition"
-                  >
-                    Open Mixer
-                  </button>
-                </div>
+          <div className="space-y-3">
+            {outputs.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#252B3D] p-8 text-center text-slate-400 text-xs">
+                No output folders yet. Start your first movie or song separation in the Separation tab!
               </div>
-            ))}
+            ) : (
+              outputs.slice(0, 5).map((out) => (
+                <div
+                  key={out.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#11131C] border border-[#252B3D] p-4 hover:border-[#6C63FF]/50 transition shadow-sm"
+                >
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-white truncate">{out.folder_name}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#6C63FF]/20 text-[#6C63FF] font-mono text-[10px] font-bold">
+                        {out.model}
+                      </span>
+                      {out.bpm && (
+                        <span className="px-2 py-0.5 rounded-full bg-[#00F0B5]/15 text-[#00F0B5] font-mono text-[10px] font-bold">
+                          {out.bpm} BPM • {out.musical_key}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 font-mono truncate max-w-md">
+                      {out.folder_path}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => invokeCommand("open_folder", { path: out.folder_path })}
+                      className="px-3 py-1.5 rounded-lg bg-[#171A26] border border-[#252B3D] hover:border-[#00F0B5] text-[#00F0B5] text-xs font-bold transition flex items-center gap-1"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Folder</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectOutput(out.id);
+                        onNavigate("results");
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-[#6C63FF] text-white text-xs font-bold hover:bg-[#7E76FF] transition shadow-md shadow-[#6C63FF]/20"
+                    >
+                      Open Mixer
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Model Pool Quick Reference */}
-        <div className="rounded-xl bg-[#161822] border border-[#25293A] p-5 space-y-3">
+        {/* Available AI Models List */}
+        <div className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-5 space-y-4 shadow-xl">
           <h2 className="text-sm font-bold text-white flex items-center gap-2">
-            <AudioWaveform className="w-4 h-4 text-[#00D4AA]" />
+            <AudioWaveform className="w-4 h-4 text-[#00F0B5]" />
             <span>Available AI Models ({models.length})</span>
           </h2>
-          <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
             {models.map((m) => (
               <div
                 key={m.id}
-                className="rounded-lg bg-[#0F1016] border border-[#25293A] p-2.5 space-y-1"
+                className="rounded-xl bg-[#11131C] border border-[#252B3D] p-3 space-y-1.5 hover:border-[#6C63FF]/40 transition"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-100 font-mono">{m.id}</span>
+                  <span className="text-xs font-bold text-white font-mono">{m.id}</span>
                   <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold ${
                       m.cached
-                        ? "bg-[#00D4AA]/15 text-[#00D4AA]"
+                        ? "bg-[#00F0B5]/15 text-[#00F0B5]"
                         : "bg-slate-800 text-slate-400"
                     }`}
                   >

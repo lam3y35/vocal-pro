@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface CanvasWaveformProps {
   peaks: number[];
@@ -12,10 +12,11 @@ export const CanvasWaveform: React.FC<CanvasWaveformProps> = ({
   peaks,
   progressRatio = 0.25,
   height = 84,
-  accentColor = "#00D4AA",
+  accentColor = "#00F0B5",
   onSeekRatio,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [hoverRatio, setHoverRatio] = useState<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -25,52 +26,101 @@ export const CanvasWaveform: React.FC<CanvasWaveformProps> = ({
 
     const dpr = window.devicePixelRatio || 1;
     const width = canvas.clientWidth || 640;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
     ctx.scale(dpr, dpr);
 
     ctx.clearRect(0, 0, width, height);
 
-    const numBars = Math.min(peaks.length || 120, Math.floor(width / 4));
-    const step = Math.max(1, Math.floor(peaks.length / numBars));
-    const barWidth = Math.max(2, width / numBars - 1.5);
+    // Number of bars
+    const barSpacing = 3;
+    const numBars = Math.max(20, Math.min(peaks.length || 120, Math.floor(width / (barSpacing + 1))));
+    const step = Math.max(1, Math.floor((peaks.length || 1) / numBars));
+    const barWidth = Math.max(2, (width / numBars) - 1.5);
     const midY = height / 2;
 
-    for (let i = 0; i < numBars; i++) {
-      const val = Math.max(0.05, Math.min(1.0, peaks[i * step] ?? 0.2));
-      const barH = val * (height * 0.84);
-      const x = i * (width / numBars);
-      const isPlayed = i / numBars <= progressRatio;
+    // Played gradient
+    const playedGradient = ctx.createLinearGradient(0, 0, 0, height);
+    playedGradient.addColorStop(0, "#00F0B5");
+    playedGradient.addColorStop(0.5, "#38BDF8");
+    playedGradient.addColorStop(1, "#6C63FF");
 
-      ctx.fillStyle = isPlayed ? accentColor : "#2E3348";
+    // Unplayed gradient
+    const unplayedGradient = ctx.createLinearGradient(0, 0, 0, height);
+    unplayedGradient.addColorStop(0, "#2D344B");
+    unplayedGradient.addColorStop(1, "#1E2333");
+
+    for (let i = 0; i < numBars; i++) {
+      const peakVal = peaks.length > 0 ? (peaks[i * step] ?? 0.2) : 0.15;
+      const val = Math.max(0.08, Math.min(1.0, peakVal));
+      const barH = val * (height * 0.82);
+      const x = i * (width / numBars);
+      const isPlayed = (i / numBars) <= progressRatio;
+
+      ctx.fillStyle = isPlayed ? playedGradient : unplayedGradient;
       ctx.beginPath();
       ctx.roundRect(x, midY - barH / 2, barWidth, barH, 2);
       ctx.fill();
     }
 
+    // Playhead line & bead
+    const playX = Math.max(2, Math.min(width - 2, progressRatio * width));
+    
     // Playhead line
-    const playX = Math.max(1, Math.min(width - 1, progressRatio * width));
-    ctx.strokeStyle = "#6C63FF";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#FFFFFF";
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = "#00F0B5";
+    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(playX, 2);
     ctx.lineTo(playX, height - 2);
     ctx.stroke();
-  }, [peaks, progressRatio, height, accentColor]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Playhead glowing bead
+    ctx.fillStyle = "#00F0B5";
+    ctx.beginPath();
+    ctx.arc(playX, 6, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Hover line if hovering
+    if (hoverRatio !== null && hoverRatio !== progressRatio) {
+      const hoverX = hoverRatio * width;
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(hoverX, 0);
+      ctx.lineTo(hoverX, height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }, [peaks, progressRatio, height, accentColor, hoverRatio]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!onSeekRatio || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     onSeekRatio(ratio);
   };
 
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverRatio(ratio);
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      onClick={handleClick}
-      style={{ height: `${height}px` }}
-      className="w-full cursor-pointer rounded-lg bg-[#0F1016]/90 border border-[#25293A] transition hover:border-[#6C63FF]/60"
-    />
+    <div className="relative group">
+      <canvas
+        ref={canvasRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setHoverRatio(null)}
+        style={{ height: `${height}px` }}
+        className="w-full cursor-pointer rounded-xl bg-[#0C0E14] border border-[#252B3D] transition-colors group-hover:border-[#6C63FF]/70 shadow-inner"
+      />
+    </div>
   );
 };

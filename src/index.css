@@ -6,28 +6,131 @@
   color-scheme: dark;
 }
 
-body {
-  margin: 0;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background-color: #0f1016;
-  color: #f1f5f9;
-  overflow: hidden;
+* {
+  box-sizing: border-box;
 }
 
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0A0B10;
+  color: #F3F4F6;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Custom Studio Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0f1016;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #25293a;
+  background: #252B3D;
   border-radius: 9999px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6c63ff;
+  background: #6C63FF;
+}
+
+/* Studio Glass & Surface Utilities */
+.studio-glass {
+  background: rgba(23, 26, 38, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.studio-card {
+  background-color: #171A26;
+  border: 1px solid #252B3D;
+  border-radius: 1rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.studio-card:hover {
+  border-color: #3A435E;
+}
+
+.studio-card-interactive {
+  background-color: #171A26;
+  border: 1px solid #252B3D;
+  border-radius: 1rem;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.studio-card-interactive:hover {
+  border-color: #6C63FF;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 25px -4px rgba(108, 99, 255, 0.15);
+}
+
+/* Custom Range Input */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #11131C;
+  border-radius: 9999px;
+  height: 6px;
+  outline: none;
+  cursor: pointer;
+  border: 1px solid #252B3D;
+  transition: border-color 0.15s ease;
+}
+
+input[type="range"]:hover {
+  border-color: #6C63FF;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #00F0B5;
+  box-shadow: 0 0 8px rgba(0, 240, 181, 0.6);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 12px rgba(0, 240, 181, 0.85);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #00F0B5;
+  box-shadow: 0 0 8px rgba(0, 240, 181, 0.6);
+  cursor: pointer;
+  border: none;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 12px rgba(0, 240, 181, 0.85);
+}
+
+/* Animated Shimmer Bar */
+.progress-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(108, 99, 255, 0.8) 0%,
+    rgba(0, 240, 181, 0.9) 50%,
+    rgba(108, 99, 255, 0.8) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
 }

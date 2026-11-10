@@ -5,15 +5,18 @@ import {
   ArrowUp,
   CheckCircle2,
   Cpu,
+  FolderOpen,
   Loader2,
   OctagonX,
   Pause,
   Play,
   RotateCcw,
+  Sliders,
   Trash2,
 } from "lucide-react";
 import { JobPriority } from "../bindings";
-import { useJobsStore, useSystemStore } from "../state/appStores";
+import { invokeCommand } from "../ipc";
+import { useJobsStore, useLibraryStore, useSystemStore } from "../state/appStores";
 
 export const JobQueueBar: React.FC = () => {
   const jobs = useJobsStore((s) => s.jobs);
@@ -28,6 +31,8 @@ export const JobQueueBar: React.FC = () => {
   const retryFailedJob = useJobsStore((s) => s.retryFailedJob);
   const clearCompletedJobs = useJobsStore((s) => s.clearCompletedJobs);
   const exportDiagnosticBundle = useSystemStore((s) => s.exportDiagnosticBundle);
+  const selectOutput = useLibraryStore((s) => s.selectOutput);
+  const outputs = useLibraryStore((s) => s.outputs);
 
   if (jobs.length === 0) return null;
 
@@ -36,14 +41,18 @@ export const JobQueueBar: React.FC = () => {
     (j) => !["done", "cancelled", "failed"].includes(j.status)
   ).length;
 
+  const matchedOutput = outputs.find(
+    (o) => o.folder_path === activeJob.output_dir || activeJob.output_dir.includes(o.folder_name)
+  );
+
   return (
     <div
       data-testid="job-queue-bar"
-      className="rounded-xl bg-[#161822] border border-[#25293A] p-3.5 space-y-3"
+      className="rounded-2xl bg-[#171A26] border border-[#252B3D] p-4 space-y-3.5 shadow-xl transition-all"
     >
-      {/* Multi-job horizontal tab strip with Worker Process Slot & Priority badges */}
+      {/* Multi-job horizontal tab strip */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
           {jobs.map((job) => {
             const fname = job.input_path.split(/[\\/]/).pop() || job.job_id;
             const isSelected = job.job_id === activeJob.job_id;
@@ -54,37 +63,37 @@ export const JobQueueBar: React.FC = () => {
                 key={job.job_id}
                 type="button"
                 onClick={() => setActiveJobId(job.job_id)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border shrink-0 transition ${
+                className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold border shrink-0 transition-all ${
                   isSelected
-                    ? "bg-[#6C63FF]/20 border-[#6C63FF] text-white"
-                    : "bg-[#0F1016] border-[#25293A] text-slate-400 hover:text-slate-200"
+                    ? "bg-[#6C63FF]/20 border-[#6C63FF] text-white shadow-md shadow-[#6C63FF]/20"
+                    : "bg-[#11131C] border-[#252B3D] text-slate-400 hover:text-slate-200 hover:border-slate-600"
                 }`}
               >
                 {job.status === "done" ? (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#00D4AA]" />
+                  <CheckCircle2 className="w-4 h-4 text-[#00F0B5] shrink-0" />
                 ) : job.status === "cancelled" ? (
-                  <OctagonX className="w-3.5 h-3.5 text-[#FFB800]" />
+                  <OctagonX className="w-4 h-4 text-[#FFB020] shrink-0" />
                 ) : job.status === "failed" ? (
-                  <AlertTriangle className="w-3.5 h-3.5 text-[#FF5E7E]" />
+                  <AlertTriangle className="w-4 h-4 text-[#FF4D6D] shrink-0" />
                 ) : (
-                  <Loader2 className="w-3.5 h-3.5 text-[#6C63FF] animate-spin" />
+                  <Loader2 className="w-4 h-4 text-[#00F0B5] animate-spin shrink-0" />
                 )}
-                <span className="px-1.5 py-0.5 rounded bg-[#00D4AA]/15 text-[#00D4AA] font-mono text-[10px]">
+                <span className="px-1.5 py-0.5 rounded-md bg-[#00F0B5]/15 text-[#00F0B5] font-mono text-[10px] font-bold">
                   W#{slotNum}
                 </span>
                 {prio !== "normal" && (
                   <span
-                    className={`px-1.5 py-0.5 rounded font-mono text-[9px] uppercase ${
+                    className={`px-1.5 py-0.5 rounded font-mono text-[9px] uppercase font-bold ${
                       prio === "high"
-                        ? "bg-[#FF5E7E]/20 text-[#FF5E7E]"
+                        ? "bg-[#FF4D6D]/20 text-[#FF4D6D]"
                         : "bg-slate-800 text-slate-400"
                     }`}
                   >
                     {prio}
                   </span>
                 )}
-                <span className="max-w-[150px] truncate">{fname}</span>
-                <span className="font-mono text-[11px] opacity-80">{job.percent}%</span>
+                <span className="max-w-[160px] truncate">{fname}</span>
+                <span className="font-mono text-[11px] font-bold text-slate-300">{job.percent}%</span>
               </button>
             );
           })}
@@ -94,10 +103,10 @@ export const JobQueueBar: React.FC = () => {
           <button
             type="button"
             onClick={toggleQueuePaused}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition ${
               queuePaused
-                ? "bg-[#FFB800]/20 border-[#FFB800] text-[#FFB800]"
-                : "bg-[#0F1016] border-[#25293A] text-slate-300 hover:text-white"
+                ? "bg-[#FFB020]/20 border-[#FFB020] text-[#FFB020]"
+                : "bg-[#11131C] border-[#252B3D] text-slate-300 hover:text-white"
             }`}
           >
             {queuePaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
@@ -107,37 +116,37 @@ export const JobQueueBar: React.FC = () => {
           <button
             type="button"
             onClick={clearCompletedJobs}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#0F1016] border border-[#25293A] text-[11px] text-slate-400 hover:text-white transition"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#11131C] border border-[#252B3D] text-xs text-slate-400 hover:text-white transition"
             title="Clear completed and cancelled jobs"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear Done</span>
           </button>
 
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0F1016] border border-[#25293A] text-[11px] font-mono text-slate-300">
-            <Cpu className="w-3.5 h-3.5 text-[#00D4AA]" />
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#11131C] border border-[#252B3D] text-xs font-mono text-slate-300">
+            <Cpu className="w-3.5 h-3.5 text-[#00F0B5]" />
             <span>
-              Pool: {runningCount}/{parallelWorkers} Processes Active
+              {runningCount}/{parallelWorkers} Workers Active
             </span>
           </div>
         </div>
       </div>
 
-      {/* Active job real-time per-segment telemetry, Priority, Reorder & <500ms cancel */}
-      <div className="space-y-2">
+      {/* Active Job Real-Time Telemetry & Progress */}
+      <div className="space-y-2.5 bg-[#11131C] border border-[#252B3D] p-3.5 rounded-xl">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="px-2 py-0.5 rounded bg-[#6C63FF]/20 border border-[#6C63FF]/40 text-[#6C63FF] font-mono uppercase text-[10px]">
+            <span className="px-2.5 py-0.5 rounded-lg bg-[#6C63FF]/20 border border-[#6C63FF]/40 text-[#6C63FF] font-mono uppercase text-[10px] font-bold">
               {activeJob.phase}
             </span>
-            <span className="px-2 py-0.5 rounded bg-[#00D4AA]/15 border border-[#00D4AA]/30 text-[#00D4AA] font-mono text-[10px]">
-              Worker Process #{(activeJob.worker_slot ?? 0) + 1}
+            <span className="px-2 py-0.5 rounded-lg bg-[#00F0B5]/15 border border-[#00F0B5]/30 text-[#00F0B5] font-mono text-[10px] font-bold">
+              Worker #{(activeJob.worker_slot ?? 0) + 1}
             </span>
             <select
               aria-label="Job Priority"
               value={activeJob.priority || "normal"}
               onChange={(e) => setJobPriority(activeJob.job_id, e.target.value as JobPriority)}
-              className="bg-[#0F1016] border border-[#25293A] rounded px-2 py-0.5 text-[11px] text-slate-200 font-mono"
+              className="bg-[#171A26] border border-[#252B3D] rounded-lg px-2 py-0.5 text-xs text-slate-200 font-mono focus:outline-none"
             >
               <option value="high">Priority: HIGH</option>
               <option value="normal">Priority: NORMAL</option>
@@ -148,7 +157,7 @@ export const JobQueueBar: React.FC = () => {
                 type="button"
                 aria-label="Move job up in queue"
                 onClick={() => reorderJob(activeJob.job_id, "up")}
-                className="p-1 rounded bg-[#0F1016] border border-[#25293A] text-slate-400 hover:text-white"
+                className="p-1 rounded-md bg-[#171A26] border border-[#252B3D] text-slate-400 hover:text-white"
               >
                 <ArrowUp className="w-3 h-3" />
               </button>
@@ -156,7 +165,7 @@ export const JobQueueBar: React.FC = () => {
                 type="button"
                 aria-label="Move job down in queue"
                 onClick={() => reorderJob(activeJob.job_id, "down")}
-                className="p-1 rounded bg-[#0F1016] border border-[#25293A] text-slate-400 hover:text-white"
+                className="p-1 rounded-md bg-[#171A26] border border-[#252B3D] text-slate-400 hover:text-white"
               >
                 <ArrowDown className="w-3 h-3" />
               </button>
@@ -176,24 +185,56 @@ export const JobQueueBar: React.FC = () => {
               <button
                 type="button"
                 onClick={() => cancelJob(activeJob.job_id)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#FF5E7E]/20 border border-[#FF5E7E]/50 text-[#FF5E7E] hover:bg-[#FF5E7E] hover:text-white text-xs font-semibold transition"
+                className="flex items-center gap-1 px-3 py-1 rounded-lg bg-[#FF4D6D]/20 border border-[#FF4D6D]/50 text-[#FF4D6D] hover:bg-[#FF4D6D] hover:text-white text-xs font-bold transition shadow-sm"
               >
                 <OctagonX className="w-3.5 h-3.5" />
-                Cancel (&lt;500ms)
+                <span>Cancel</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Structured Error Recovery Card (Workstream G & H) */}
+        {/* Success Card with direct Open Folder CTA */}
+        {activeJob.status === "done" && (
+          <div className="rounded-xl bg-[#00F0B5]/10 border border-[#00F0B5]/40 p-3 flex flex-wrap items-center justify-between gap-3 text-xs animate-fadeIn">
+            <div className="flex items-center gap-2 text-[#00F0B5] font-semibold">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Separation Complete! Output stems written to: {activeJob.output_dir}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {activeJob.output_dir && (
+                <button
+                  type="button"
+                  onClick={() => invokeCommand("open_folder", { path: activeJob.output_dir })}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00F0B5] text-slate-950 font-bold hover:opacity-90 transition shadow-md shadow-[#00F0B5]/25"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>Open Output Folder</span>
+                </button>
+              )}
+              {matchedOutput && (
+                <button
+                  type="button"
+                  onClick={() => selectOutput(matchedOutput.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171A26] border border-[#252B3D] hover:border-[#6C63FF] text-slate-200 font-semibold transition"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-[#6C63FF]" />
+                  <span>Open in Mixer</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Error Recovery Card */}
         {activeJob.status === "failed" && (
           <div
             data-testid="job-error-card"
             role="alert"
-            className="rounded-lg bg-[#FF5E7E]/15 border border-[#FF5E7E]/50 p-3 flex flex-wrap items-center justify-between gap-3 text-xs"
+            className="rounded-xl bg-[#FF4D6D]/15 border border-[#FF4D6D]/50 p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs animate-fadeIn"
           >
             <div className="space-y-0.5">
-              <div className="font-bold text-[#FF5E7E] flex items-center gap-1.5 font-mono">
+              <div className="font-bold text-[#FF4D6D] flex items-center gap-1.5 font-mono">
                 <AlertTriangle className="w-4 h-4" />
                 <span>[{activeJob.error_code || "ENGINE_ERROR"}] Separation Job Failed</span>
               </div>
@@ -205,7 +246,7 @@ export const JobQueueBar: React.FC = () => {
               <button
                 type="button"
                 onClick={() => retryFailedJob(activeJob.job_id)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#00D4AA] text-slate-950 font-bold hover:opacity-90 transition"
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#00F0B5] text-slate-950 font-bold hover:opacity-90 transition"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Retry Job</span>
@@ -213,7 +254,7 @@ export const JobQueueBar: React.FC = () => {
               <button
                 type="button"
                 onClick={exportDiagnosticBundle}
-                className="px-3 py-1.5 rounded-lg bg-[#0F1016] border border-[#25293A] text-slate-200 hover:border-[#6C63FF] transition"
+                className="px-3 py-1.5 rounded-lg bg-[#171A26] border border-[#252B3D] text-slate-200 hover:border-[#6C63FF] transition"
               >
                 Export Diagnostics
               </button>
@@ -221,19 +262,22 @@ export const JobQueueBar: React.FC = () => {
           </div>
         )}
 
-        <div className="w-full h-2 rounded-full bg-[#0F1016] overflow-hidden border border-[#25293A]">
+        {/* Sleek Progress Bar */}
+        <div className="w-full h-2.5 rounded-full bg-[#0A0B10] overflow-hidden border border-[#252B3D] relative">
           <div
-            className="h-full transition-all duration-200 rounded-full"
+            className={`h-full transition-all duration-300 rounded-full ${
+              !["done", "cancelled", "failed"].includes(activeJob.status) ? "progress-shimmer" : ""
+            }`}
             style={{
               width: `${activeJob.percent}%`,
               background:
                 activeJob.status === "done"
-                  ? "#00D4AA"
+                  ? "#00F0B5"
                   : activeJob.status === "cancelled"
-                  ? "#FFB800"
+                  ? "#FFB020"
                   : activeJob.status === "failed"
-                  ? "#FF5E7E"
-                  : "linear-gradient(90deg, #6C63FF 0%, #00D4AA 100%)",
+                  ? "#FF4D6D"
+                  : undefined,
             }}
           />
         </div>

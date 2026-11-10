@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Cpu, FolderOutput, Moon, Sparkles, Sun, Wand2, X, Zap } from "lucide-react";
+import { Cpu, FolderOpen, FolderOutput, Moon, Sparkles, Sun, Wand2, X, Zap } from "lucide-react";
 import { PerformanceProfileMode } from "./bindings";
 import { ScreenId, Sidebar } from "./components/Sidebar";
+import { invokeCommand } from "./ipc";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { HomeScreen } from "./screens/HomeScreen";
 import { ResultsScreen } from "./screens/ResultsScreen";
@@ -77,27 +78,28 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Studio Top Status Bar */}
         <header
-          className={`h-14 shrink-0 border-b px-6 flex items-center justify-between ${
+          className={`h-14 shrink-0 border-b px-6 flex items-center justify-between backdrop-blur-md transition-colors ${
             isLight
-              ? "border-slate-300 bg-white text-slate-900"
-              : "border-[#25293A] bg-[#161822]/80 text-slate-100"
+              ? "border-slate-300 bg-white/90 text-slate-900"
+              : "border-[#252B3D] bg-[#11131C]/90 text-slate-100"
           }`}
         >
           <div className="flex items-center gap-3">
-            <h1 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              {activeScreen === "home" && "Studio Overview"}
-              {activeScreen === "separate" && "AI Separation Workstation"}
+            <span className="h-2 w-2 rounded-full bg-[#00F0B5] shadow-[0_0_8px_#00F0B5]" />
+            <h1 className="text-xs font-extrabold uppercase tracking-widest text-slate-200">
+              {activeScreen === "home" && "Studio Overview & Status"}
+              {activeScreen === "separate" && "AI Separation & Movie Remux Workstation"}
               {activeScreen === "results" && "Outputs Library & Real-Time Stem Mixer"}
               {activeScreen === "history" && "Separation & Download History"}
               {activeScreen === "settings" && "Engine, DSP & OS Integration Settings"}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5 text-[11px] font-mono text-slate-300">
+          <div className="flex items-center gap-2.5 text-xs">
             <button
               type="button"
               onClick={() => setShowOnboardingModal(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#0F1016] border border-[#25293A] hover:border-[#00D4AA] text-[#00D4AA] transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171A26] border border-[#252B3D] hover:border-[#00F0B5] text-[#00F0B5] font-semibold transition"
             >
               <Wand2 className="w-3.5 h-3.5" />
               <span>Setup Wizard</span>
@@ -107,25 +109,28 @@ export const App: React.FC = () => {
               type="button"
               aria-label="Toggle Light or Dark Theme"
               onClick={() => setTheme(isLight ? "dark" : "light")}
-              className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#0F1016] border border-[#25293A] hover:border-[#6C63FF] text-slate-200 transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#171A26] border border-[#252B3D] hover:border-[#6C63FF] text-slate-200 font-medium transition"
             >
-              {isLight ? <Moon className="w-3.5 h-3.5" /> : <Sun className="w-3.5 h-3.5" />}
+              {isLight ? <Moon className="w-3.5 h-3.5 text-[#6C63FF]" /> : <Sun className="w-3.5 h-3.5 text-[#FFB020]" />}
               <span>{isLight ? "Dark" : "Light"}</span>
             </button>
 
-            <span className="hidden md:inline-block px-2 py-0.5 rounded bg-[#0F1016] border border-[#25293A] text-[#00D4AA]">
-              N4: 0 Listening Ports
-            </span>
-            <span className="hidden md:inline-block px-2 py-0.5 rounded bg-[#0F1016] border border-[#25293A] text-[#6C63FF]">
-              N5: &lt;500ms Cancel
-            </span>
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#171A26] border border-[#252B3D] text-[11px] font-mono text-[#00F0B5]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00F0B5] animate-ping" />
+              <span>100% Offline &amp; Private</span>
+            </div>
+
+            <div className="hidden lg:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#171A26] border border-[#252B3D] text-[11px] font-mono text-[#6C63FF]">
+              <Zap className="w-3 h-3" />
+              <span>Instant Cancel</span>
+            </div>
           </div>
         </header>
 
         {systemBanner && (
-          <div className="bg-[#00D4AA]/15 border-b border-[#00D4AA]/40 px-6 py-2.5 text-xs font-mono text-[#00D4AA] flex items-center justify-between">
+          <div className="bg-[#00F0B5]/15 border-b border-[#00F0B5]/40 px-6 py-2.5 text-xs font-mono text-[#00F0B5] flex items-center justify-between animate-fadeIn">
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 shrink-0 text-[#00D4AA]" />
+              <Zap className="w-4 h-4 shrink-0 text-[#00F0B5]" />
               <span>{systemBanner}</span>
             </div>
             <button
@@ -235,13 +240,26 @@ export const App: React.FC = () => {
                 <FolderOutput className="w-4 h-4 text-[#6C63FF]" />
                 <span>2. Default Studio Output Folder</span>
               </label>
-              <input
-                type="text"
-                value={customOutputDir}
-                onChange={(e) => setCustomOutputDir(e.target.value)}
-                placeholder="C:\Users\Lam3y\Music\output_vocals (default alongside source)"
-                className="w-full bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-2 text-xs text-slate-100 font-mono"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customOutputDir}
+                  onChange={(e) => setCustomOutputDir(e.target.value)}
+                  placeholder="C:\Users\Lam3y\Music\output_vocals (default alongside source)"
+                  className="flex-1 bg-[#0F1016] border border-[#25293A] rounded-lg px-3 py-2 text-xs text-slate-100 font-mono focus:border-[#6C63FF] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const picked = await invokeCommand<string | null>("pick_output_dir");
+                    if (picked) setCustomOutputDir(picked);
+                  }}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg bg-[#0F1016] border border-[#25293A] hover:border-[#6C63FF] text-slate-200 font-semibold transition"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-[#00F0B5]" />
+                  <span>Browse</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-3 pt-2 border-t border-[#25293A]">

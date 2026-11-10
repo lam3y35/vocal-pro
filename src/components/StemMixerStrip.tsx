@@ -10,15 +10,15 @@ interface StemMixerStripProps {
   onExportMidi: () => void;
 }
 
-const STEM_COLORS: Record<string, string> = {
-  vocals: "#00D4AA",
-  drums: "#FF5E7E",
-  bass: "#FFB800",
-  guitar: "#6C63FF",
-  piano: "#38BDF8",
-  other: "#A855F7",
-  karaoke: "#10B981",
-  background: "#64748B",
+const STEM_COLORS: Record<string, { bg: string; border: string; glow: string }> = {
+  vocals: { bg: "#00F0B5", border: "#00F0B5", glow: "rgba(0, 240, 181, 0.4)" },
+  drums: { bg: "#FF4D6D", border: "#FF4D6D", glow: "rgba(255, 77, 109, 0.4)" },
+  bass: { bg: "#FFB020", border: "#FFB020", glow: "rgba(255, 176, 32, 0.4)" },
+  guitar: { bg: "#6C63FF", border: "#6C63FF", glow: "rgba(108, 99, 255, 0.4)" },
+  piano: { bg: "#38BDF8", border: "#38BDF8", glow: "rgba(56, 189, 248, 0.4)" },
+  other: { bg: "#A855F7", border: "#A855F7", glow: "rgba(168, 85, 247, 0.4)" },
+  karaoke: { bg: "#10B981", border: "#10B981", glow: "rgba(16, 185, 129, 0.4)" },
+  background: { bg: "#64748B", border: "#64748B", glow: "rgba(100, 116, 139, 0.4)" },
 };
 
 export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
@@ -28,7 +28,11 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
   onToggleSolo,
   onExportMidi,
 }) => {
-  const color = STEM_COLORS[stem.name.toLowerCase()] || "#6C63FF";
+  const color = STEM_COLORS[stem.name.toLowerCase()] || {
+    bg: "#6C63FF",
+    border: "#6C63FF",
+    glow: "rgba(108, 99, 255, 0.4)",
+  };
   const pct = Math.round(stem.gain * 100);
   const dbText =
     stem.mute || stem.gain <= 0.001
@@ -36,19 +40,24 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
       : `${(20 * Math.log10(stem.gain)).toFixed(1)} dB`;
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl bg-[#0F1016] border border-[#25293A] p-3.5 hover:border-[#6C63FF]/50 transition">
+    <div className="flex flex-col gap-3 rounded-2xl bg-[#11131C] border border-[#252B3D] p-4 hover:border-[#6C63FF]/60 transition-all shadow-md">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5">
           <span
-            className="h-3 w-3 rounded-full shrink-0"
-            style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}80` }}
+            className="h-3.5 w-3.5 rounded-full shrink-0 transition-transform duration-200"
+            style={{
+              backgroundColor: color.bg,
+              boxShadow: `0 0 10px ${color.glow}`,
+            }}
           />
-          <span className="font-semibold uppercase tracking-wider text-xs text-slate-100">
-            {stem.name}
-          </span>
-          <span className="text-[11px] font-mono text-slate-400">
-            {pct}% ({dbText})
-          </span>
+          <div>
+            <span className="font-bold uppercase tracking-wider text-xs text-white block">
+              {stem.name}
+            </span>
+            <span className="text-[10px] font-mono text-slate-400">
+              {pct}% ({dbText})
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -56,10 +65,10 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
             type="button"
             onClick={onToggleMute}
             title="Mute Stem"
-            className={`px-2 py-1 rounded text-[11px] font-bold transition ${
+            className={`w-7 h-7 rounded-lg text-xs font-black transition-all flex items-center justify-center ${
               stem.mute
-                ? "bg-[#FF5E7E] text-white"
-                : "bg-[#161822] text-slate-300 border border-[#25293A] hover:border-[#FF5E7E]"
+                ? "bg-[#FF4D6D] text-white shadow-md shadow-[#FF4D6D]/40"
+                : "bg-[#171A26] text-slate-400 border border-[#252B3D] hover:border-[#FF4D6D] hover:text-[#FF4D6D]"
             }`}
           >
             M
@@ -68,10 +77,10 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
             type="button"
             onClick={onToggleSolo}
             title="Solo Stem"
-            className={`px-2 py-1 rounded text-[11px] font-bold transition ${
+            className={`w-7 h-7 rounded-lg text-xs font-black transition-all flex items-center justify-center ${
               stem.solo
-                ? "bg-[#FFB800] text-slate-950"
-                : "bg-[#161822] text-slate-300 border border-[#25293A] hover:border-[#FFB800]"
+                ? "bg-[#FFB020] text-slate-950 shadow-md shadow-[#FFB020]/40"
+                : "bg-[#171A26] text-slate-400 border border-[#252B3D] hover:border-[#FFB020] hover:text-[#FFB020]"
             }`}
           >
             S
@@ -80,17 +89,17 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
             type="button"
             onClick={onExportMidi}
             title="Convert Stem Pitch to MIDI (.mid via librosa.pyin)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-medium bg-[#161822] text-[#00D4AA] border border-[#00D4AA]/30 hover:bg-[#00D4AA]/15 transition"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#171A26] text-[#00F0B5] border border-[#00F0B5]/30 hover:bg-[#00F0B5]/15 transition"
           >
             <Music className="w-3 h-3" />
-            MIDI
+            <span>MIDI</span>
           </button>
         </div>
       </div>
 
       <div className="flex items-center gap-3">
         {stem.mute || stem.gain === 0 ? (
-          <VolumeX className="w-4 h-4 text-[#FF5E7E] shrink-0" />
+          <VolumeX className="w-4 h-4 text-[#FF4D6D] shrink-0" />
         ) : (
           <Volume2 className="w-4 h-4 text-slate-400 shrink-0" />
         )}
@@ -101,7 +110,7 @@ export const StemMixerStrip: React.FC<StemMixerStripProps> = ({
           step={0.01}
           value={stem.gain}
           onChange={(e) => onGainChange(parseFloat(e.target.value))}
-          className="w-full accent-[#6C63FF] cursor-pointer h-1.5 bg-[#25293A] rounded-lg"
+          className="w-full accent-[#6C63FF] cursor-pointer"
         />
       </div>
     </div>
