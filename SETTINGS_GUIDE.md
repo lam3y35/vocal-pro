@@ -379,3 +379,127 @@ By default, VocalPro v3 starts in **Maximum Performance Mode ("Max Quality")**:
 - **FP16 Acceleration:** Active for high-throughput tensor calculations on modern GPUs.
 - **Parallel Workers:** Automatically tuned to maximum concurrent jobs supported by your GPU VRAM and CPU cores.
 - **User Control:** If you are running other heavy tasks or on laptop battery, you can easily switch to **Balanced** or **Eco** at any time using the profile switcher in the top navigation bar.
+
+---
+
+## 9. Seamless Cinema Synchronization & Whisper-Safe Gating
+
+To guarantee that separated movies sound 100% natural without audio dropouts, desync, or missing first/last seconds, VocalPro v3 incorporates a dedicated cinema synchronization engine:
+
+### 1. Sample-Accurate Frame 0 PTS Alignment
+- **Problem in Traditional Tools:** Traditional video muxers can produce a 1 to 3-second desynchronization between audio and video due to Presentation Time Stamp (PTS) drift and negative timestamp padding.
+- **VocalPro v3 Solution:** When remuxing cinema video, VocalPro injects:
+  ```bash
+  -af aresample=async=1:first_pts=0 -ar 48000 -avoid_negative_ts make_zero -fflags +genpts
+  ```
+  This forces the audio timeline to anchor exactly to video frame 0 at standard 48 kHz cinema master sample rate. Dialogue aligns with actor lip movements with microsecond precision from the very first frame to the final credits.
+
+### 2. Boundary Micro-Fade Smoothing (15ms Fade-In / 25ms Fade-Out)
+- **Problem in Traditional Tools:** Cutting audio at file boundaries or between processed chunks produces audible digital clicks, pops, or abrupt harsh cuts in the first and last seconds of a video.
+- **VocalPro v3 Solution:** VocalPro applies Hann-window micro-fades:
+  - **Start of file:** A gentle 15ms raised-cosine fade-in eliminates any initial DC offset pop or transient click.
+  - **End of file:** A 25ms smooth fade-out prevents harsh digital truncation at the final video frame.
+
+### 3. Whisper-Safe Cinema Voice Detection
+- **Problem in Traditional Tools:** Standard noise gates have aggressive thresholds (-40 dB to -50 dB). In dramatic movies, whisper dialogue, quiet phone calls, or subtle background voices fall below this threshold and get completely muted, making the viewer think portions of the movie have broken audio.
+- **VocalPro v3 Solution:**
+  - Gate threshold is automatically tuned to cinema sensitivity (`-62.0 dB`).
+  - Gate floor is softened to `-32.0 dB` (avoiding artificial absolute silence).
+  - Minimum vocal trigger window is set to `0.03 seconds` with `400ms` release hold time, ensuring every whisper and subtle breath remains 100% audible.
+
+### 4. Zero Silence Trimming for Movies
+- In music acapella extraction, trimming silence (`trim_silence: true`) is popular. However, in video files, trimming leading silence destroys lip-sync!
+- VocalPro v3 automatically disables silence trimming (`trim_silence: false`) whenever a video file is processed, guaranteeing that every silent dramatic pause retains its exact duration.
+
+---
+
+## 10. الدليل الشامل للإعدادات باللغة العربية (Arabic Master Reference)
+
+دليل تفصيلي ومبسط يشرح كل خيار في واجهة البرنامج، ماذا يعني، وكيف يؤثر تغييره (بالزيادة أو النقصان) على جودة الصوت وسرعة المعالجة:
+
+### 1. معالج الإعداد الأولي (Setup Wizard)
+معالج الإعداد مصمم لتجهيز كل شيء تلقائياً في 4 خطوات بسيطة:
+1. **اكتشاف العتاد (Hardware Discovery):** يفحص جهازك ويكتشف نوع كارت الشاشة (NVIDIA CUDA أو AMD DirectML أو Apple Metal أو CPU) وسعة الذاكرة (RAM و VRAM).
+2. **مجلد الحفظ الافتراضي (Default Output Directory):** يحدد أين ستذهب ملفاتك تلقائياً (افتراضياً في `Music/VocalPro` لتجد كل ملفاتك في مكان ثابت دائماً).
+3. **ملف الأداء (Performance Profile):**
+   - **Balanced:** توازن ممتاز بين السرعة وجودة الصوت.
+   - **High Quality:** أقصى جودة ودقة استوديو (الوضع الافتراضي الآن).
+   - **Eco / Low Resource:** للأجهزة الضعيفة واللابتوبات للحفاظ على البطارية وتفادي السخونة.
+4. **اختيار النموذج (Model Selection):** اختيار الموديل الافتراضي المفضل لديك مثل `htdemucs` أو `mdx_extra`.
+
+---
+
+### 2. سر عبارة "N4: 0 Listening Ports" (صفر بورتات استماع)
+- **المشكلة في البرامج القديمة:** كانت البرامج تعمل كخادم ويب محلي (Local Web Server) يفتح منافذ مثل `localhost:5000` أو `7860`. وكان يحدث خطأ `WinError 10055` عندما يمتلئ المنفذ أو يتعارض مع برنامج آخر، كما كان جدار الحماية (Firewall) ومضادات الفيروسات تشك في البرنامج وتقوم بحظره فجأة.
+- **الحل في VocalPro v3:** البرنامج يعمل بـ **0 Listening Ports** (صفر بورتات شبكة تماماً). التواصل بين واجهة الرست ومحرك الذكاء الاصطناعي بايثون يتم عبر قنوات الذاكرة القياسية للنظام (`stdio JSON-Lines`). لا يمكن لأي جدار حماية تعطيله، ولا توجد أي مشاكل بورتات إطلاقاً.
+
+---
+
+### 3. ما معنى "N5: < 500ms Cancel" (إلغاء فوري في أقل من نصف ثانية)؟
+- **في البرامج القديمة:** عند الضغط على إلغاء (Cancel) أثناء معالجة ملف، كان البرنامج يتجمد لمدة دقيقة كاملة أو تضطر لقفله من إدارة المهام (Task Manager).
+- **في VocalPro v3:** محرك الذكاء الاصطناعي يفحص مؤشراً ذرياً (`Atomic Flag`) بين كل شريحة معالجة والأخرى. بمجرد ضغط **Cancel**، تتوقف عمليات الحساب الرياضي وتُفرغ ذاكرة كارت الشاشة فوراً في زمن **أقل من 500 مللي ثانية (نصف ثانية)** وتعود الواجهة جاهزة للعمل فوراً.
+
+---
+
+### 4. زر "Auto-tune for hardware" وتنبيه النظام المباشر
+- **ماذا يفعل؟** يختبر مواصفات جهازك الحقيقية ويضبط تلقائياً: عدد الأغاني المتوازية (Parallel Workers)، طول المقطع (Segment)، وتفعيل تسريع الدقة النصفية (`FP16`).
+- **التحديث الجديد:** بمجرد الضغط عليه، يظهر شريط تنبيهات ملون في أعلى التطبيق (`Global System Banner`) يوضح لك فوراً ما تم تفعيله (مثال: `Auto-tuned for hardware: CUDA • 2 parallel workers • segment=7.8s`).
+
+---
+
+### 5. عارض الموجات الصوتية الفائق "Native Rust 8,000-Point Waveform" وخط التمرير
+- **عارض الموجات 8,000 نقطة:** بمجرد اختيار ملف، يقوم محرك الرست فائق السرعة بقراءة وتوليد 8,000 نقطة ترددية دقيقة لشكل الأغنية في أقل من 50 مللي ثانية دون استهلاك الذاكرة.
+- **خط التمرير (Scrubber Line):** خط رأسي يمكنك سحبه والتنقل به في أي ثانية من الأغنية لسماع المقطع فوراً، وفي المكسر يتيح لك تحريك كل الآلات والأصوات معاً في نفس اللحظة.
+
+---
+
+### 6. إعدادات الفصل بالتفصيل (Separation Settings) مع أمثلة الزيادة والنقصان
+
+| الإعداد (Parameter) | ماذا يفعل؟ | إذا جعلته أعلى (Higher) | إذا جعلته أقل (Lower) |
+| :--- | :--- | :--- | :--- |
+| **Output Mode** | اختيار ما ترغب في استخراجه (Vocals فقط، Instrumental، أو كل الآلات Stems). | استخراج كل الآلات يعطيك تحكماً كاملاً ولكن يستغرق وقتاً أطول قليلاً. | استخراج Vocals فقط أسرع بنسبة 40% ويوفر مساحة القرص. |
+| **Audio Format** | صيغة الإخراج (WAV 24-bit، MP3 320k، FLAC). | WAV: جودة أصلية غير مضغوطة لكن حجم الملف كبير (30-50 ميجا). | MP3 320k: جودة نقية جداً مطابقة للأصل بحجم صغير (5-7 ميجا فقط). |
+| **Inference Device** | المعالج المستخدم (CUDA كارت شاشة، أو CPU). | CUDA: سرعة فائقة (فصل أغنية 4 دقائق في 15 ثانية). | CPU: أبطأ لكنه يعمل على أي جهاز بدون كارت شاشة خارجي. |
+| **Video Remix Mode** | طريقة تصدير الفيديو (`video_only`, `audio_only`, `both`). | `video_only`: ينتج فيلم نظيف بنفس الحجم الأصلي ويمسح الملفات المؤقتة. | `audio_only`: يستخرج ملفات الصوت فقط بسرعة فائقة بدون الفيديو. |
+| **Random Shifts** | تكرار المعالجة مع إزاحة زمنية لتقليل الشوائب. | **3 أو أكثر:** صوت غناء نقي جداً وخالٍ تماماً من الطنين، لكن وقت المعالجة يتضاعف 3 مرات. | **0 أو 1:** سرعة معالجة قصوى وجودة ممتازة للاستماع السريع. |
+| **Segment Duration** | طول الشريحة التي يحللها الذكاء الاصطناعي (بالثواني). | **7.8 ثواني:** يفهم سياق اللحن أفضل ويفصل الآلات المعقدة ببراعة. | **4.0 ثواني:** يقلل استهلاك كارت الشاشة (VRAM) للأجهزة ذات الكروت الضعيفة (4GB). |
+| **Overlap Ratio** | نسبة تداخل الشرائح المتتالية لتنعيم الانتقال. | **0.50:** انتقال فائق النعومة وانعدام أي تقطيع في الصوت مع زيادة بسيطة في وقت المعالجة. | **0.10:** معالجة أسرع ولكن قد تلاحظ تغيرات طفيفة بين المقاطع. |
+| **Parallel Workers** | عدد الملفات التي تتم معالجتها في نفس اللحظة. | **2 أو 4:** يعالج 4 أغانٍ في نفس الوقت ويقلل وقت القائمة للنصف (يتطلب رامات 16GB+). | **1:** يعالج ملفاً تلو الآخر بهدوء دون استهلاك موارد الجهاز. |
+
+---
+
+### 7. البروفايلات الجاهزة (Turnkey Presets)
+- **Studio Crystal Vocals:** مخصص لعزل صوت الغناء بأعلى نقاء لاستخدامه في الريمكسات والأعمال الاحترافية.
+- **6-Stem Band Split:** يفصل الأغنية إلى 6 مسارات مستقلة (غناء، درامز، باص، بيانو، جيتار، وباقي الآلات).
+- **Cinema Movie & Dialogue:** مخصص للأفلام والمسلسلات لعزل الحوارات وتصفية الضوضاء المحيطة مع الحفاظ على تزامن الصورة بنسبة 100%.
+- **DJ Quick Preview:** سرعة فائقة لمعاينة الأغاني وتحضير قوائم التشغيل للـ DJs.
+
+---
+
+### 8. خيارات العرض المتقدم (Advanced View Settings)
+- **قوالب التسمية (Naming Templates):** تتيح لك تخصيص أسماء الملفات الناتجة مثل `{track}_vocals.mp3` لترتيب مكتبتك بسهولة.
+- **سياسة تكرار الملفات (Conflict Policy):** تختار هل يقوم البرنامج بالكتابة فوق الملف القديم (Overwrite) أو إضافة رقم جانبه مثل `_1` أو تخطيه.
+- **إدارة الذاكرة المؤقتة (Cache Management):** زر بضغطة واحدة لتفريغ الملفات المؤقتة وتحرير مساحة القرص الصلب فوراً.
+- **مقياس الواجهة والتباين العالي (UI Scale & High Contrast):** لتكبير حجم النصوص والأزرار وتوضيح الشاشة في بيئات الإضاءة الخافتة.
+
+---
+
+### 9. زر "Export Diagnostic Log Bundle"
+- **ماذا يفعل؟** يقوم بضغطة واحدة بإنشاء ملف مضغوط `.zip` يحتوي على سجلات النظام، ومواصفات العتاد، وحالة محرك الذكاء الاصطناعي.
+- **الأمان والخصوصية:** الملف **لا يحتوي على أي ملفات صوتية ولا أسماء أغانيك الخاصة ولا أي بيانات شخصية**.
+- **فائدته:** إذا واجهت أي مشكلة، تضغط هذا الزر وترسل الملف لفريق الدعم الفني لحل مشكلتك فوراً.
+
+---
+
+### 10. زر "Restart Python AI Worker"
+- **ماذا يفعل؟** إذا قمت بتحميل ملف تالف أو حدث خطأ مفاجئ في ذاكرة كارت الشاشة وأردت إعادة تشغيل محرك الذكاء الاصطناعي، تضغط هذا الزر ليعيد تشغيل المحرك في 50 مللي ثانية فقط دون الحاجة لإغلاق البرنامج وفقدان عملك المفتوح.
+
+---
+
+## 11. Direct Media URL Downloader & Filename Preservation
+
+When downloading media from URLs in the **Fetch & Queue** tab:
+- **Title Preservation:** VocalPro v3 queries the media title from the URL metadata and cleans invalid filesystem characters (such as `:`, `?`, `*`, `/`), preserving the clean original title.
+- **No Mystery Names:** Files are saved directly as `{Media_Title}.mp3` rather than random hash strings like `temp_abc123.tmp`.
+- **Automatic Staging:** The downloaded file is immediately added to the separation queue and displayed in the waveform timeline with its verified name and audio format.
+
