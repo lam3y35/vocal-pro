@@ -118,10 +118,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if app_data_py.exists() {
                 return app_data_py;
             }
-            let venv = PathBuf::from("/home/antigravity/.venv/bin/python");
-            if venv.exists() {
-                venv
-            } else if cfg!(windows) {
+            let cwd_candidates = [
+                PathBuf::from("worker/.venv/bin/python"),
+                PathBuf::from("worker/.venv/bin/python3"),
+                PathBuf::from("worker/.venv/Scripts/python.exe"),
+                PathBuf::from(".venv/bin/python"),
+                PathBuf::from(".venv/Scripts/python.exe"),
+                PathBuf::from("/home/antigravity/.venv/bin/python"),
+            ];
+            for c in cwd_candidates {
+                if c.exists() {
+                    return c;
+                }
+            }
+            if cfg!(windows) {
                 PathBuf::from("python")
             } else {
                 PathBuf::from("python3")

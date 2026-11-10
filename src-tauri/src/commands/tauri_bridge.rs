@@ -389,27 +389,36 @@ pub mod bridge {
 
     #[tauri::command]
     pub fn open_folder(path: String) -> Result<(), String> {
-        if path.trim().is_empty() {
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
             return Err("Path cannot be empty".to_string());
         }
+        let target = std::path::Path::new(trimmed);
+        let folder = if target.is_file() {
+            target.parent().unwrap_or(target)
+        } else {
+            target
+        };
+        let p_str = folder.to_string_lossy().to_string();
+
         #[cfg(target_os = "windows")]
         {
             std::process::Command::new("explorer")
-                .arg(&path)
+                .arg(&p_str)
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }
         #[cfg(target_os = "macos")]
         {
             std::process::Command::new("open")
-                .arg(&path)
+                .arg(&p_str)
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }
         #[cfg(target_os = "linux")]
         {
             std::process::Command::new("xdg-open")
-                .arg(&path)
+                .arg(&p_str)
                 .spawn()
                 .map_err(|e| e.to_string())?;
         }
