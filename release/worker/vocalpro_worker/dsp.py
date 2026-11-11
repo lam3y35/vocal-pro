@@ -461,8 +461,9 @@ def smooth_crossfade_chunks(
     overlap_samples: int,
     sr: int = 44100,
     fade_curve: str = "equal_power",
+    chunk_starts: Optional[list[int]] = None,
 ) -> np.ndarray:
-    """Merge overlapping audio chunks with smooth equal-power crossfade."""
+    """Merge overlapping audio chunks with smooth equal-power crossfade (supporting exact chunk_starts)."""
     if not chunk_arrays:
         raise ValueError("No chunks to merge")
     if len(chunk_arrays) == 1:
@@ -484,27 +485,43 @@ def smooth_crossfade_chunks(
         hop = max(1, nominal_len // 2)
         overlap = nominal_len - hop
 
-    total_len = max(i * hop + chunk.shape[0] for i, chunk in enumerate(chunks))
+    if chunk_starts and len(chunk_starts) == n:
+        total_len = max(chunk_starts[i] + chunk.shape[0] for i, chunk in enumerate(chunks))
+    else:
+        total_len = max(i * hop + chunk.shape[0] for i, chunk in enumerate(chunks))
 
     output = np.zeros((total_len, n_channels), dtype=np.float32)
     weight_sum = np.zeros((total_len, 1), dtype=np.float32)
 
     for i, chunk in enumerate(chunks):
         chunk_len = chunk.shape[0]
-        start = i * hop
+        start = chunk_starts[i] if (chunk_starts and len(chunk_starts) == n) else (i * hop)
         w = np.ones(chunk_len, dtype=np.float32)
 
-        v = min(overlap, chunk_len)
-        if v > 0:
-            k = np.arange(v, dtype=np.float32)
-            if fade_curve == "linear":
-                rise = k / v
-            else:
-                rise = 0.5 * (1.0 - np.cos(np.pi * k / v))
-            if i > 0:
-                w[:v] = rise
-            if i < n - 1:
-                w[chunk_len - v :] = rise[::-1]
+        # Crossfade with previous chunk (fade-in)
+        if i > 0:
+            prev_start = chunk_starts[i - 1] if (chunk_starts and len(chunk_starts) == n) else ((i - 1) * hop)
+            prev_len = chunks[i - 1].shape[0]
+            v_in = max(0, min(chunk_len, (prev_start + prev_len) - start))
+            if v_in > 0:
+                k = np.arange(v_in, dtype=np.float32)
+                if fade_curve == "linear":
+                    rise = k / v_in
+                else:
+                    rise = 0.5 * (1.0 - np.cos(np.pi * k / v_in))
+                w[:v_in] = rise
+
+        # Crossfade with next chunk (fade-out)
+        if i < n - 1:
+            next_start = chunk_starts[i + 1] if (chunk_starts and len(chunk_starts) == n) else ((i + 1) * hop)
+            v_out = max(0, min(chunk_len, (start + chunk_len) - next_start))
+            if v_out > 0:
+                k = np.arange(v_out, dtype=np.float32)
+                if fade_curve == "linear":
+                    fall = 1.0 - (k / v_out)
+                else:
+                    fall = 0.5 * (1.0 + np.cos(np.pi * k / v_out))
+                w[chunk_len - v_out :] = fall
 
         end = start + chunk_len
         output[start:end] += chunk * w[:, np.newaxis]
